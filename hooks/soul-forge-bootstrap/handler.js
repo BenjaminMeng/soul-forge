@@ -122,13 +122,8 @@ function processConfigUpdate(workspaceDir, config) {
   const updatePath = path.join(workspaceDir, '.soul_forge', 'config_update.md');
   const configPath = path.join(workspaceDir, '.soul_forge', 'config.json');
 
-  if (!fs.existsSync(updatePath)) return config;
-
   const updateContent = safeReadFile(updatePath);
-  if (!updateContent) {
-    appendToErrorLog(workspaceDir, 'config_update.md exists but could not be read. File will be retried on next bootstrap.');
-    return config;
-  }
+  if (!updateContent) return config;
 
   try {
     const update = parseConfigUpdate(updateContent);
@@ -245,7 +240,7 @@ function computeCalibrationReadiness(observations) {
     if (!obs.modifier_hint) continue;
 
     // Parse "verbosity → lower" or "verbosity → 降低" or "humor → raise"
-    const hintMatch = obs.modifier_hint.match(/(\w+)\s*[→\->]+\s*(.+)/);
+    const hintMatch = obs.modifier_hint.match(/(\w+)\s*[→->]+\s*(.+)/);
     if (!hintMatch) continue;
 
     const modifier = hintMatch[1].toLowerCase().trim();

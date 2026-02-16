@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:help.apiyi.com)",
+      "WebFetch(domain:zhuanlan.zhihu.com)",
+      "WebFetch(domain:cloud.tencent.com)",
+      "WebFetch(domain:www.cursor-ide.com)",
+      "WebFetch(domain:cursor.com)",
+      "Bash(dir)",
+      "Bash(git -C /d/Coding/OpenClaw/OpenClaw_Indiviual_SOUL.md log --oneline --all)",
+      "WebFetch(domain:x.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.openclaw.ai)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:codepointer.substack.com)",
+      "WebFetch(domain:markaicode.com)",
+      "Bash(copy:*)",
+      "Bash(powershell.exe -Command:*)",
+      "Bash(dir:*)",
+      "Bash(wc:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker ps:*)",
+      "Bash(where:*)",
+      "Bash(node:*)",
+      "Bash(docker build:*)",
+      "Bash(docker compose:*)",
+      "Bash(find:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(fc:*)"
+    ]
+  }
+}

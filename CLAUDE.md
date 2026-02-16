@@ -45,6 +45,26 @@ Hooks   → CONFIG_DIR/hooks/      (managed)  or  WORKSPACE/hooks/      (workspa
 Runtime → WORKSPACE/.soul_forge/  (MUST be in workspace, handler.js uses workspaceDir)
 ```
 
+## Pre-Test Mandatory Checklist
+
+Before **every** test round (including semi-auto Telegram tests), run these alignment checks:
+
+```
+1. diff source SKILL.md vs deployed SKILL.md
+   D:\Coding\OpenClaw_Indiviual_SOUL.md\src\skills\soul-forge\SKILL.md
+   C:\Users\benja\.openclaw\skills\soul-forge\SKILL.md
+
+2. diff source handler.js vs deployed handler.js
+   D:\Coding\OpenClaw_Indiviual_SOUL.md\src\hooks\soul-forge-bootstrap\handler.js
+   C:\Users\benja\.openclaw\hooks\soul-forge-bootstrap\handler.js
+
+3. If either differs → cp source to deployed + docker compose down && up -d
+
+4. Verify Docker logs: grep for "loaded 4 internal hook handlers" (not 3)
+```
+
+**Why this exists:** BUG-3 regressed twice (R18, R18a) because the C: deployed handler.js was silently overwritten with an older version missing the regex fix. The source (D:) and deployed (C:) directories are independent — edits to one do NOT auto-sync to the other. Every code change must be explicitly copied and verified before testing.
+
 ## Known Issues & Fixes
 
 ### 2026-02-13: Skills `workspace.dir` config default missing
