@@ -4,7 +4,7 @@
 **定位：** 基于 DISC 人格理论的 AI Agent 人格配置平台
 **文档版本：** v2.0
 **日期：** 2026 年 2 月 12 日
-**同步架构版本：** v2.1（Soul_Forge_Architecture_v2.md）
+**同步架构版本：** v3.1（Soul_Forge_Architecture_v3.1.md）
 
 ---
 
@@ -100,14 +100,16 @@ Soul Forge 提供一个三层架构：
 
 | 资产 | 状态 | 位置 |
 |---|---|---|
-| Soul Weaver v0.1（Python 生成器） | v1 MVP 已完成，v2 重写中 | `soul_weaver.py` |
-| v2 架构设计文档 | 设计定稿（78 轮推演） | `Soul_Forge_Architecture_v2.md` |
-| DISC 角色体系（4 型） | 设计完成 | v2 架构文档 Section 4 |
-| 修饰符系统（4 维度） | 设计完成 | v2 架构文档 Section 5 |
-| 锚点式合并写入引擎 | v1 已实现，v2 待升级 | `soul_weaver.py` |
-| Pre-flight Check 机制 | 设计完成 | v2 架构文档 Section 10 |
-| .soul_history 快照机制 | 设计完成 | 待实现 |
-| v1 核心协议归档 | 已归档（v2 已替换） | 核心协议归档文档 |
+| SKILL.md（OpenClaw Skill 定义） | MVP 已完成（1310 行） | `src/skills/soul-forge/SKILL.md` |
+| handler.js（Bootstrap Hook） | MVP 已完成 | `src/hooks/soul-forge-bootstrap/handler.js` |
+| HEARTBEAT_SEGMENT.md（观察协议） | MVP 已完成 | `src/HEARTBEAT_SEGMENT.md` |
+| v3.1 架构设计文档 | 设计定稿（78 轮推演 + MVP 验证） | `docs/Soul_Forge_Architecture_v3.1.md` |
+| DISC 角色体系（4 型） | MVP 已实现 | v3.1 架构文档 Section 4 |
+| 修饰符系统（4 维度） | 设计完成（Phase 2） | v3.1 架构文档 Section 5 |
+| Pre-flight Check 机制 | MVP 已实现（简化版） | SKILL.md Section G |
+| .soul_history 快照机制 | MVP 已实现 | handler.js + Install Script |
+| Bootstrap Hook（config 管线） | MVP 已实现 | handler.js |
+| v1 核心协议归档 | 已归档（v3.1 已替换） | 核心协议归档文档 |
 
 ---
 
@@ -209,16 +211,16 @@ Soul Forge 提供一个三层架构：
 ### 5.1 产品形态演进
 
 ```
-Phase 1: CLI 工具 (v1 已完成，v2 重写中)
-    soul_weaver.py — 本地 Python 脚本
-    8 题 DISC 情景问卷 → 角色判定 → 生成 SOUL.md + IDENTITY.md
-    Pre-flight Check → 快照保护 → Smart Merge 写入
+Phase 1: OpenClaw Skill (MVP 已完成, 2026-02-17)
+    SKILL.md + handler.js — OpenClaw 原生 Skill + Bootstrap Hook
+    8 题 DISC 问卷 → 角色判定 → 生成 SOUL.md + IDENTITY.md
+    Pre-flight Check → 快照保护 → 模板填充 + 整体写入
+    状态管理 (pause/resume/reset) + Heartbeat 观察
 
-Phase 2: OpenClaw Skill
-    SKILL.md + soul_weaver.py
-    发布到 ClawHub，支持 Agent 内调用
+Phase 2: 高级个性化 (当前状态: 设计完成，按用户反馈优先级实现)
     修饰符对话学习（Humor/Verbosity/Proactivity/Challenge）
     主副视角动态调整
+    发布到 ClawHub，支持 Agent 内调用
 
 Phase 3: Web SaaS
     静态前端 + API 后端
@@ -234,47 +236,27 @@ Phase 4: 智能推荐引擎
 ```
 ┌─────────────────────────────────────────────────┐
 │                  用户界面层                        │
-│  CLI (Python) │ Web (React/Vue) │ Skill (SKILL.md)│
+│  Telegram (OpenClaw) │ Phase 3: Web │ Phase 3: CLI│
 └──────────────────────┬──────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────┐
-│            运行前检测 (Pre-flight Check)            │
-│  读取现有 SOUL.md/IDENTITY.md → 比对原始模板       │
-│  → 三种状态：全新模板 / 已有定制 / SF 二次运行      │
-│  → 保存快照 + 提取用户定制内容                      │
-└──────────────────────┬──────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────┐
-│              核心引擎 (Soul Engine)                │
+│     四组件协同架构 (v3.1)                          │
 │                                                   │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────┐ │
-│  │ DISC 问卷    │  │ DISC 计分器   │  │ 模板组装 │ │
-│  │ 8 题情景式   │  │ D/I/S/C 评分  │  │ 器      │ │
-│  └──────┬──────┘  └──────┬───────┘  └────┬────┘ │
-│         │                │                │       │
-│  ┌──────▼────────────────▼────────────────▼────┐ │
-│  │           角色模板库                          │ │
-│  │  DISC 角色模板 │ 修饰符映射 │ Boundaries 模板 │ │
-│  │  OpenClaw 底包 │ 核心内核   │ IDENTITY 元数据 │ │
-│  └─────────────────────────────────────────────┘ │
-└──────────────────────┬──────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────┐
-│         Smart Merge 写入 + 输出适配层              │
-│                                                   │
-│  OpenClaw    │  ElizaOS     │  Claude Code        │
-│  SOUL.md     │  character   │  CLAUDE.md          │
-│  IDENTITY.md │  .json       │                     │
-│              │              │  Cursor              │
-│              │              │  .cursorrules         │
-└─────────────────────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────┐
-│              数据收集层 (Data Layer)               │
-│                                                   │
-│  问卷答案日志 │ .soul_history diff │ 修饰符发现   │
-│  → config.json (DISC 得分 + 修饰符参数)           │
-│  → Langfuse 可观测性集成（Phase 2+）              │
+│  ┌─────────────┐  ┌──────────────┐              │
+│  │ Skill        │  │ Bootstrap    │              │
+│  │ SKILL.md     │  │ Hook         │              │
+│  │ 问卷+命令    │  │ handler.js   │              │
+│  └──────┬──────┘  └──────┬───────┘              │
+│         │                │                       │
+│  ┌──────▼────────────────▼──────────────────┐   │
+│  │  HEARTBEAT 观察  │  config.json 状态机    │   │
+│  │  memory.md 记录  │  config_update.md 管线 │   │
+│  └──────────────────────────────────────────┘   │
+│         │                                        │
+│  ┌──────▼──────────────────────────────────┐    │
+│  │  输出: SOUL.md + IDENTITY.md             │    │
+│  │  Phase 3: character.json / CLAUDE.md     │    │
+│  └─────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -309,70 +291,59 @@ Phase 4: 智能推荐引擎
 
 ### 5.5 关键技术实现
 
-#### 锚点式局部更新 (Smart Merge)
+#### 模板填充 + 整体写入 (v3.1)
 
-```python
-def smart_merge(original, new_sections):
-    """
-    1. 按 H2 标题切分原文档
-    2. 仅替换 new_sections 中存在的段落
-    3. 保留所有未管辖段落
-    4. 追加原文中不存在的新段落
-    """
-```
+v3.1 采用模板填充 + 整体写入方案（Decision #74），取代了早期的锚点式局部更新设计：
+- SKILL.md 内嵌 4 型角色模板
+- 校准完成后，Agent 从模板填充完整内容，整体写入 SOUL.md + IDENTITY.md
+- 避免了锚点匹配失败和部分写入不一致的问题
 
 #### Pre-flight Check（运行前检测）
 
+MVP 简化版：读取 config.json status 字段进行路由
+
 ```
-读取 SOUL.md + IDENTITY.md
-  ├── 检查 config.json 存在 → 状态 3（Soul Forge 二次运行）→ 直接替换管辖内容
-  ├── 检查文件内标记 → 状态 3（降级检测）
-  └── 对比 OpenClaw 原始模板
-        ├── 完全匹配 → 状态 1（全新模板）→ 直接替换
-        └── 有差异 → 状态 2（已使用用户）→ 保存快照 + 保留定制 + 渐进内化
+读取 .soul_forge/config.json
+  ├── status = "fresh"      → 新用户流程（隐私声明 + 问卷）
+  ├── status = "calibrated" → 已校准（显示当前状态 + 重新校准选项）
+  ├── status = "paused"     → 暂停中（三选项菜单：resume/recalibrate/view）
+  ├── status = "dormant"    → 休眠（恢复/重新开始选项）
+  └── status = "declined"   → 已拒绝（重新展示隐私声明）
 ```
+
+完整版 Pre-flight Check（对比原始模板、检测用户定制）为 Phase 2 范围。
 
 #### .soul_history 快照管理
 
 ```
 .soul_history/
-├── SOUL_INIT.md           # Soul Forge 运行前的 SOUL.md 完整快照（永久保留）
-├── IDENTITY_INIT.md       # Soul Forge 运行前的 IDENTITY.md 完整快照（永久保留）
-├── user_customizations.json  # 检测到的用户/AI 已有定制内容
-├── SOUL_20260212_v1.md    # 历史版本
-└── changelog.json         # 结构化变更日志
+├── SOUL_INIT.md           # SOUL.md 原始模板（永久保留，INIT 保护规则防覆写）
+├── IDENTITY_INIT.md       # IDENTITY.md 原始模板（永久保留，INIT 保护规则防覆写）
+├── SOUL_BACKUP_*.md       # Reset 前备份
+└── IDENTITY_BACKUP_*.md   # Reset 前备份
 ```
 
 #### .soul_forge/config.json（运行时配置）
 
 ```json
 {
-  "soul_forge_version": "2.1",
+  "version": "3.1",
+  "status": "calibrated",
   "disc_type": "S",
-  "disc_confidence": "high",
-  "disc_raw_scores": {"D": 2, "I": 3, "S": 6, "C": 1},
-  "primary": "S",
-  "secondary": null,
-  "modifiers": {"humor": 1, "verbosity": 1, "proactivity": 1, "challenge": 1}
+  "disc_scores": {"D": 2, "I": 3, "S": 6, "C": 1},
+  "paused": false,
+  "calibration_history": [
+    {"action": "calibrate", "type": "S", "timestamp": "..."}
+  ]
 }
 ```
 
-#### 多平台适配器
+#### 多平台适配器（Phase 3）
 
-```python
-class FormatAdapter:
-    def to_openclaw(self, personality) -> (str, str):
-        """生成 SOUL.md + IDENTITY.md"""
-
-    def to_elizaos(self, personality) -> dict:
-        """生成 character.json"""
-
-    def to_claude_code(self, personality) -> str:
-        """生成 CLAUDE.md"""
-
-    def to_cursor(self, personality) -> str:
-        """生成 .cursorrules"""
-```
+当前仅支持 OpenClaw（SOUL.md + IDENTITY.md）。Phase 3 计划扩展：
+- ElizaOS → character.json
+- Claude Code → CLAUDE.md
+- Cursor → .cursorrules
 
 ---
 
@@ -830,15 +801,31 @@ DISC 理论 → 所有人都能读论文
 ### 12.3 现有代码资产清单
 
 ```
-d:\Coding\OpenClaw\OpenClaw_Indiviual_SOUL.md\
-├── soul_weaver.py                # 主生成器 (v1 已完成，v2 重写中)
-├── Soul_Forge_Architecture_v2.md # v2 架构设计文档 (设计定稿)
-├── SoulForge_Business_Plan.md    # 本文档
-├── SOUL.md                       # 生成的示例文件
-├── IDENTITY.md                   # 生成的示例文件
-├── 核心协议归档：OpenClaw 灵魂架构 (Project_ Soul Forge).md  # v1 协议归档
-└── .claude/
-    └── settings.local.json       # Claude Code 配置
+OpenClaw_Indiviual_SOUL.md/
+├── README.md                  # 项目目录说明
+├── CLAUDE.md                  # Claude Code 项目笔记
+├── src/                       # 可部署源文件
+│   ├── skills/soul-forge/SKILL.md        # Skill 定义 (1310 行)
+│   ├── hooks/soul-forge-bootstrap/HOOK.md
+│   ├── hooks/soul-forge-bootstrap/handler.js  # Bootstrap Hook
+│   ├── .soul_forge/config.json           # 运行时配置模板
+│   ├── .soul_forge/memory.md             # 观察记录模板
+│   ├── .soul_forge/SOUL_INIT.md          # SOUL.md 原始模板
+│   ├── .soul_forge/IDENTITY_INIT.md      # IDENTITY.md 原始模板
+│   ├── HEARTBEAT_SEGMENT.md              # 观察协议段
+│   ├── SOUL.md                           # 示例输出
+│   └── IDENTITY.md                       # 示例输出
+├── mvp/                       # MVP 交付物 & 测试
+│   ├── Soul_Forge_MVP_Install.ps1        # 开发者安装脚本
+│   ├── Soul_Forge_Customer_Install.ps1   # 客户安装脚本
+│   ├── Soul_Forge_MVP_Test_Guide.md
+│   ├── Soul_Forge_Test_Feedback.md
+│   └── Soul_Forge_Issue_Record.md
+├── docs/                      # 设计文档
+│   ├── Soul_Forge_Architecture_v3.1.md   # v3.1 架构规范
+│   ├── SoulForge_Business_Plan.md        # 本文档
+│   └── archive/                          # 归档文档
+└── .claude/                   # Claude Code 设置
 ```
 
 ---

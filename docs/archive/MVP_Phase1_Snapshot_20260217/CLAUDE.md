@@ -4,16 +4,6 @@
 
 Soul Forge is a DISC-based AI personality calibration system for OpenClaw. It consists of a Skill (SKILL.md), a Bootstrap Hook (handler.js), and runtime data files that together enable personality questionnaire, calibration, and continuous observation.
 
-## Current Status
-
-**MVP Phase 1: COMPLETE** (R35, 2026-02-17 验证通过)
-- DISC 8 题问卷 + 4 型模板 + Bootstrap Hook + 状态命令 + Heartbeat 观察
-- 19 issues: 17 CLOSED (全部已验证), 1 ACCEPTED (BUG-1), 1 ONGOING mitigated (#20 ENOENT, 非阻塞)
-- R35 无回归，#20 仍非阻塞跟踪
-- M1-M14 全部 ✅ (见 Architecture v3.1 Section 19)
-
-**Next Phase:** GTM 执行 (Business Plan Section 7.1) + Phase 2 按用户反馈优先级推进
-
 ## Directory Structure
 
 ```
@@ -89,31 +79,6 @@ Before **every** test round (including semi-auto Telegram tests), run these alig
 
 Original install script placed `.soul_forge/` in `~/.openclaw/.soul_forge/` (CONFIG_DIR root). Correct location is `~/.openclaw/workspace/.soul_forge/` because `handler.js` uses `path.join(workspaceDir, '.soul_forge', ...)`.
 
-## Pitfall Quick Reference
-
-从 35 轮测试中提炼的关键教训，避免重蹈覆辙：
-
-| 坑 | 教训 | 首次出现 | 详情 |
-|----|------|---------|------|
-| 源码/部署不同步 | D: 和 C: 是独立的，编辑源码后必须 cp + restart | R18 (BUG-3 回归) | CLAUDE.md Pre-Test Checklist |
-| INIT 模板污染 | 运行时 snapshot 逻辑会覆写 *_INIT.md，需要 INIT 保护规则 | R29 (#24) | Issue Record #24 |
-| memory.md 覆写 | Agent 可能覆写而非追加，需 MANDATORY append-only 规则 | R32 (#25) | Issue Record #25 |
-| Agent 绕过架构约束 | Agent 可能直写 config.json 或自修复绕过路由，需 FORBIDDEN + STRICT 规则 | R23-R24 (#22/#23) | Issue Record #22, #23 |
-| config_update.md 竞态 | 同会话内多次写 config_update.md 会覆盖，需 Session Merge Rule | R20 (#21) | Issue Record #21 |
-| DeepSeek 指令跟随力 | 新增 SKILL.md 指令不一定被 DeepSeek Chat 遵循，需 MANDATORY 标记 + 测试验证 | R24 (T-R18b-3) | Test Feedback R18b |
-
-## Document Navigation
-
-| 文档 | 位置 | 用途 | 什么时候读 |
-|------|------|------|-----------|
-| Architecture v3.1 | docs/Soul_Forge_Architecture_v3.1.md | 完整设计规范（2000+ 行） | 需要理解设计决策、Phase 2 范围时 |
-| Business Plan v2.1 | docs/SoulForge_Business_Plan.md | 商业策略 + 市场分析 + 财务预测 | GTM 规划、定价决策时 |
-| Issue Record | mvp/Soul_Forge_Issue_Record.md | 19 个 issue 索引 + R1 postmortem | 排查已知问题、避免重复踩坑时 |
-| Test Feedback | mvp/Soul_Forge_Test_Feedback.md | 当前状态摘要 + 轮次总结索引 | 了解测试覆盖和当前质量状态时 |
-| Test Detail Archive | docs/archive/Test_Feedback_R1-R18d_Detail.md | R1-R18d 逐轮详细日志 | 需要考古具体轮次细节时 |
-| Install Script | mvp/Soul_Forge_MVP_Install.ps1 | 开发者本地安装 | 本地部署时 |
-| Customer Install | mvp/Soul_Forge_Customer_Install.ps1 | 客户环境安装（通用路径） | 为客户安装服务时 |
-
 ## Key Code References
 
 - Skill eligibility: `src/agents/skills/config.ts:shouldIncludeSkill()`
@@ -121,10 +86,3 @@ Original install script placed `.soul_forge/` in `~/.openclaw/.soul_forge/` (CON
 - Hook eligibility: `src/hooks/config.ts:shouldIncludeHook()`
 - Default workspace: `src/agents/workspace.ts:resolveDefaultAgentWorkspaceDir()`
 - Config dir: `src/utils.ts:resolveConfigDir()`
-
-## Version Milestones
-
-| 版本 | 日期 | 内容 | 验证 | 快照 |
-|------|------|------|------|------|
-| MVP Phase 1 | 2026-02-17 | DISC 问卷 + 4 型模板 + Bootstrap Hook + 状态命令 + Heartbeat 观察 | R35 V-1~V-3 全部通过 | docs/archive/MVP_Phase1_Snapshot_20260217/ |
-| Phase 2 | TBD | P1-P8 (见 Architecture Section 19) | — | — |

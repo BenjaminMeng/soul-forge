@@ -2058,20 +2058,20 @@ Soul Forge 不是纯 Skill，是 **Skill + Hook Pack 组合包**：
 
 | ID | 事项 | 依赖 | 状态 |
 |---|---|---|---|
-| M1 | 设计 8 道 DISC 情景问卷题目 | 无 | 待开始 |
-| M2 | 编写 4 套 DISC 角色模板文本（Core Truths / Vibe / Boundaries） | M1 | 待开始 |
-| M3 | 编写 SKILL.md（问卷流程 + 计分逻辑 + 模板组装 + 校准/重校准/暂停/恢复/重置命令） | M1, M2 | 待开始 |
-| M4 | 编写 Bootstrap Hook（HOOK.md + handler.ts） | M3 | 待开始 |
-| M5 | 编写 HEARTBEAT.md Soul Forge 段（结构化 6 问检查清单 + paused/dormant 检查） | 无 | 待开始 |
-| M6 | 定义 config.json 初始结构（含 paused/dormant 状态） | 无 | 待开始 |
-| M7 | 编写 IDENTITY.md `## Core` 段最终文本 | 无 | 已确认（见 3.2） |
-| M8 | 编写问卷结果用户确认流程文本（类型描述 + 3 级确认） | M1 | 待开始 |
-| M9 | 编写隐私告知文本（问卷前展示） | 无 | 待开始 |
-| M10 | 编写效果对比演示模板（校准后展示风格差异） | M2 | 待开始 |
-| M11 | 编写安装后偏好首问文本 | 无 | 待开始 |
-| M12 | 编写交付验证检查清单逻辑（10 项自检） | M3 | 待开始 |
-| M13 | 本地安装测试（手动部署到自己的 OpenClaw） | M3-M6 | 待开始 |
-| M14 | 全流程测试（问卷 → 确认 → 生成 → 演示 → 首问 → 观察 → 校准） | M13 | 待开始 |
+| M1 | 设计 8 道 DISC 情景问卷题目 | 无 | ✅ 已完成 (SKILL.md Section B) |
+| M2 | 编写 4 套 DISC 角色模板文本（Core Truths / Vibe / Boundaries） | M1 | ✅ 已完成 (SKILL.md Section E) |
+| M3 | 编写 SKILL.md（问卷流程 + 计分逻辑 + 模板组装 + 校准/重校准/暂停/恢复/重置命令） | M1, M2 | ✅ 已完成 (SKILL.md Sections A-M, 1310 行) |
+| M4 | 编写 Bootstrap Hook（HOOK.md + handler.ts） | M3 | ✅ 已完成 (handler.js 运行中) |
+| M5 | 编写 HEARTBEAT.md Soul Forge 段（结构化 6 问检查清单 + paused/dormant 检查） | 无 | ✅ 已完成 (HEARTBEAT_SEGMENT.md) |
+| M6 | 定义 config.json 初始结构（含 paused/dormant 状态） | 无 | ✅ 已完成 (5 状态 + DISC + modifiers + history) |
+| M7 | 编写 IDENTITY.md `## Core` 段最终文本 | 无 | ✅ 已完成 |
+| M8 | 编写问卷结果用户确认流程文本（类型描述 + 3 级确认） | M1 | ✅ 已完成 (SKILL.md Section D) |
+| M9 | 编写隐私告知文本（问卷前展示） | 无 | ✅ 已完成 (SKILL.md Section A, 中英双语) |
+| M10 | 编写效果对比演示模板（校准后展示风格差异） | M2 | ✅ 已完成 (SKILL.md Section G) |
+| M11 | 编写安装后偏好首问文本 | 无 | ✅ 已完成 (SKILL.md Section H) |
+| M12 | 编写交付验证检查清单逻辑（10 项自检） | M3 | ✅ 已完成 (SKILL.md Section K, 17 项) |
+| M13 | 本地安装测试（手动部署到自己的 OpenClaw） | M3-M6 | ✅ 已完成 (R1-R33 Telegram 测试) |
+| M14 | 全流程测试（问卷 → 确认 → 生成 → 演示 → 首问 → 观察 → 校准） | M13 | ✅ 已完成 (R35 V-1~V-3 全部验证通过, 2026-02-17) |
 
 ### MVP 测试加速指南
 

@@ -32,7 +32,27 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git config:*)",
-      "Bash(fc:*)"
+      "Bash(fc:*)",
+      "Bash(docker restart:*)",
+      "Bash(powershell -Command \"if \\(\\(Get-FileHash ''D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\\\\docs\\\\Soul_Forge_Architecture_v3.1.md''\\).Hash -eq \\(Get-FileHash ''D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\\\\Soul_Forge_Architecture_v3.1.md''\\).Hash\\) { ''IDENTICAL'' } else { ''DIFFERENT'' }\")",
+      "Bash(powershell -Command \"Get-ChildItem ''D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\\\\'' -File | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize\")",
+      "Bash(powershell -Command \"if \\(\\(Get-FileHash ''D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\\\\docs\\\\Soul_Forge_Architecture_v3.1.md''\\).Hash -eq \\(Get-FileHash ''D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\\\\Soul_Forge_Architecture_v3.md''\\).Hash\\) { ''v3 = v3.1'' } else { ''v3 != v3.1'' }\")",
+      "Bash(powershell -Command:*)",
+      "Bash(powershell -NoProfile -File - <<'PS1'\n$base = 'D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md'\n$names = 'SOUL.md','IDENTITY.md','HEARTBEAT_SEGMENT.md'\nforeach \\($n in $names\\) {\n    $rp = Join-Path $base $n\n    $sp = Join-Path $base \"src\\\\$n\"\n    $rHash = \\(Get-FileHash $rp\\).Hash\n    $sHash = \\(Get-FileHash $sp\\).Hash\n    $rDate = \\(Get-Item $rp\\).LastWriteTime.ToString\\('yyyy-MM-dd'\\)\n    $sDate = \\(Get-Item $sp\\).LastWriteTime.ToString\\('yyyy-MM-dd'\\)\n    $rLen = \\(Get-Item $rp\\).Length\n    $sLen = \\(Get-Item $sp\\).Length\n    $status = if \\($rHash -eq $sHash\\) { 'IDENTICAL' } else { 'DIFFERENT' }\n    Write-Host \"$n : $status | root=${rLen}B \\($rDate\\) | src=${sLen}B \\($sDate\\)\"\n}\nPS1)",
+      "Bash(powershell:*)",
+      "Bash(xcopy:*)",
+      "Bash(cmd.exe /c 'xcopy \"\"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\"\" \"\"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md_backup_20260217\\\\\"\" /E /I /H /Q')",
+      "Bash(cmd.exe:*)",
+      "Bash(findstr:*)",
+      "Bash(test:*)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\" status)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw\\\\OpenClaw_Indiviual_SOUL.md\" log --oneline -10)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw\\\\OpenClaw_Indiviual_SOUL.md\" tag -l)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\" log --oneline --all)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\" diff --stat HEAD)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\" log --oneline -5)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\" add -A)",
+      "Bash(git -C \"D:\\\\Coding\\\\OpenClaw_Indiviual_SOUL.md\" commit -m \"$\\(cat <<''EOF''\nMVP Phase 1 complete \\(R35\\) + GTM prep\n\nCode changes \\(R18b -> R35\\):\n- SKILL.md: #22/#23 FORBIDDEN+STRICT rules, #24 INIT protection,\n  #25 memory.md append-only, #26 reset completeness, #20 mitigation\n- handler.js: context.md safeWriteFile, HEARTBEAT/SOUL repair\n- Install script: .soul_history/ step, SOURCE path fix\n\nPhase 1 收尾 \\(GTM prep\\):\n- Archive: MVP snapshot \\(14 files\\), test detail R1-R18d\n- Test Feedback slimmed from ~689 to 77 lines\n- CLAUDE.md: added Current Status, Pitfall Reference, Doc Nav, Milestones\n- Business Plan: aligned to v3.1 architecture \\(Sections 2.3/5.1/5.2/5.5/12.3\\)\n- Customer install script \\(generic paths, -WhatIf, backup, rollback guide\\)\n- Customer package \\(10 files\\) + README + feedback template\n- Cleaned up root-level legacy files into docs/archive/\n\nValidation: R35 V-1~V-3 all passed, 17 CLOSED / 1 ACCEPTED / 1 ONGOING\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
