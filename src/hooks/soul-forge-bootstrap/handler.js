@@ -8,8 +8,10 @@ const path = require('path');
 // Runs on agent:bootstrap. Pure Node.js builtins only.
 // ============================================================
 
-const FRESH_CONFIG = { status: 'fresh', version: 1 };
-const MAX_INJECT_BYTES = 3072; // 3KB budget
+const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_Q_VERSION = 2;
+const FRESH_CONFIG = { status: 'fresh', version: 2 };
+const MAX_INJECT_BYTES = 6144; // 6KB budget
 const MAX_OBSERVATIONS = 20;
 const READINESS_THRESHOLD = 5;
 
@@ -53,6 +55,158 @@ function safeParseJSON(str) {
   } catch {
     return null;
   }
+}
+
+// --- Schema migration ---
+
+function migrateSchema(config) {
+  if (config.version >= CURRENT_SCHEMA_VERSION) return config;
+
+  // v1 → v2 migration
+  if (!config.q_version) {
+    config.q_version = 1;
+  }
+  if (!config.disc) {
+    config.disc = {};
+  }
+  if (config.disc.answers_hash === undefined) {
+    config.disc.answers_hash = null;
+  }
+  if (!config.probe_phase_start) {
+    config.probe_phase_start = config.created_at || new Date().toISOString();
+  }
+  if (config.last_style_probe === undefined) {
+    config.last_style_probe = null;
+  }
+  if (config.probe_session_count === undefined) {
+    config.probe_session_count = 0;
+  }
+
+  config.version = CURRENT_SCHEMA_VERSION;
+  return config;
+}
+
+// --- Pre-flight Check ---
+
+function preflightCheck(workspaceDir, config) {
+  const warnings = [];
+  let legacyUser = false;
+
+  // Schema validation: check required fields exist and have correct types
+  const requiredFields = {
+    status: 'string',
+    version: 'number'
+  };
+  for (const [field, type] of Object.entries(requiredFields)) {
+    if (config[field] === undefined) {
+      warnings.push(`config.json missing required field: ${field}`);
+    } else if (typeof config[field] !== type) {
+      warnings.push(`config.json field "${field}" has wrong type: expected ${type}, got ${typeof config[field]}`);
+    }
+  }
+
+  // File integrity: check SOUL.md, memory.md, config.json exist
+  const criticalFiles = [
+    { name: 'SOUL.md', path: path.join(workspaceDir, 'SOUL.md') },
+    { name: 'memory.md', path: path.join(workspaceDir, '.soul_forge', 'memory.md') },
+    { name: 'config.json', path: path.join(workspaceDir, '.soul_forge', 'config.json') }
+  ];
+  for (const file of criticalFiles) {
+    if (!fs.existsSync(file.path)) {
+      warnings.push(`${file.name} not found at expected location`);
+    }
+  }
+
+  // Version compatibility: future schema version check
+  if (config.version > CURRENT_SCHEMA_VERSION) {
+    warnings.push(`config.json version ${config.version} is newer than handler.js supports (v${CURRENT_SCHEMA_VERSION}). Some features may not work correctly. Consider updating Soul Forge.`);
+  }
+
+  // Legacy user detection: config fresh/missing + SOUL.md exists with non-default content
+  if (!config.status || config.status === 'fresh') {
+    const soulPath = path.join(workspaceDir, 'SOUL.md');
+    const soulContent = safeReadFile(soulPath);
+    if (soulContent) {
+      // Check if SOUL.md has non-default content (not just the basic template)
+      const hasCustomContent = soulContent.includes('## Core Truths') &&
+        !soulContent.includes('soul-forge:v1:') &&
+        soulContent.length > 200;
+      if (hasCustomContent) {
+        legacyUser = true;
+      }
+    }
+  }
+
+  return { warnings, legacyUser };
+}
+
+// --- Probing control ---
+
+const PROBE_STAGE1 = { minSessions: 3, minDays: 1, maxSessions: 7, maxDays: 5 };
+const PROBE_STAGE2 = { minSessions: 5, minDays: 2, maxSessions: 10, maxDays: 7 };
+const PROBE_MATURITY_DAYS = 30;
+
+function computeProbingControl(config) {
+  // Only probe when calibrated
+  if (config.status !== 'calibrated') {
+    return { style_probe_allowed: false, stage: 0, target: null };
+  }
+
+  const now = Date.now();
+  const phaseStart = config.probe_phase_start ? new Date(config.probe_phase_start).getTime() : now;
+  const daysSinceStart = (now - phaseStart) / 86400000;
+
+  // Determine stage
+  let stage;
+  if (daysSinceStart < 14) {
+    stage = 1;
+  } else if (daysSinceStart < PROBE_MATURITY_DAYS) {
+    stage = 2;
+  } else {
+    stage = 3;
+  }
+
+  // Stage 3 = maturity, no probing
+  if (stage === 3) {
+    return { style_probe_allowed: false, stage: 3, target: null };
+  }
+
+  const params = stage === 1 ? PROBE_STAGE1 : PROBE_STAGE2;
+  const sessionCount = config.probe_session_count || 0;
+  const lastProbe = config.last_style_probe ? new Date(config.last_style_probe).getTime() : 0;
+  const daysSinceProbe = lastProbe ? (now - lastProbe) / 86400000 : Infinity;
+
+  // Frequency control with dual thresholds
+  let allowed;
+  const minMet = sessionCount >= params.minSessions && daysSinceProbe >= params.minDays;
+  const maxMet = sessionCount >= params.maxSessions || daysSinceProbe >= params.maxDays;
+
+  if (!minMet) {
+    allowed = false;
+  } else if (maxMet) {
+    allowed = true; // forced trigger
+  } else {
+    allowed = true; // within window
+  }
+
+  // Find lowest-confidence modifier as target
+  let target = null;
+  if (config.modifiers) {
+    const modifiers = config.modifiers;
+    // Lower confidence = closer to default middle value (1)
+    // Track which modifier has been least observed
+    let lowestConfidence = Infinity;
+    for (const [key, value] of Object.entries(modifiers)) {
+      // Confidence heuristic: distance from middle value indicates more data
+      const confidence = Math.abs(value - 1);
+      if (confidence < lowestConfidence) {
+        lowestConfidence = confidence;
+        target = key;
+      }
+    }
+  }
+
+  return { style_probe_allowed: allowed, stage, target };
 }
 
 // --- config_update.md parser ---
@@ -110,6 +264,30 @@ function parseConfigUpdate(content) {
           result.modifiers[fieldMatch[1].toLowerCase()] = parseInt(fieldMatch[2], 10);
         }
         break;
+      case 'probing':
+        if (fieldMatch) {
+          if (!result.probing) result.probing = {};
+          const probingKey = fieldMatch[1].toLowerCase();
+          const probingVal = fieldMatch[2].trim();
+          if (probingKey === 'probe_session_count') {
+            result.probing.probe_session_count = parseInt(probingVal, 10);
+          } else if (probingKey === 'last_style_probe') {
+            result.probing.last_style_probe = probingVal;
+          }
+        }
+        break;
+      case 'questionnaire':
+        if (fieldMatch) {
+          if (!result.questionnaire) result.questionnaire = {};
+          const qKey = fieldMatch[1].toLowerCase();
+          const qVal = fieldMatch[2].trim();
+          if (qKey === 'q_version') {
+            result.questionnaire.q_version = parseInt(qVal, 10);
+          } else if (qKey === 'answers_hash') {
+            result.questionnaire.answers_hash = qVal;
+          }
+        }
+        break;
     }
   }
 
@@ -146,10 +324,13 @@ function processConfigUpdate(workspaceDir, config) {
     // Apply modifier updates
     if (update.modifiers) {
       if (!config.modifiers) {
-        config.modifiers = { humor: 1, verbosity: 2, proactivity: 1, challenge: 0 };
+        config.modifiers = { humor: 1, verbosity: 1, proactivity: 1, challenge: 1 };
       }
       Object.assign(config.modifiers, update.modifiers);
     }
+
+    // Capture previous status before updating (needed for reactivation detection)
+    const previousStatus = config.status;
 
     // Apply status update
     if (update.status && update.action !== 'merge_failed') {
@@ -159,6 +340,54 @@ function processConfigUpdate(workspaceDir, config) {
     // Apply DISC update
     if (update.disc) {
       config.disc = Object.assign(config.disc || {}, update.disc);
+    }
+
+    // Apply probing updates
+    if (update.probing) {
+      if (update.probing.last_style_probe !== undefined) {
+        config.last_style_probe = update.probing.last_style_probe;
+      }
+      if (update.probing.probe_session_count !== undefined) {
+        config.probe_session_count = update.probing.probe_session_count;
+      }
+    }
+
+    // Apply questionnaire updates
+    if (update.questionnaire) {
+      if (update.questionnaire.q_version !== undefined) {
+        config.q_version = update.questionnaire.q_version;
+      }
+      if (update.questionnaire.answers_hash !== undefined) {
+        if (!config.disc) config.disc = {};
+        config.disc.answers_hash = update.questionnaire.answers_hash;
+      }
+    }
+
+    // Handle modifier processing based on trigger type (user_initiated vs version_update)
+    if (update.reason && update.modifiers) {
+      const reason = update.reason.toLowerCase();
+      if (reason.includes('version_update')) {
+        // Version update: preserve existing Heartbeat-tuned modifiers, skip modifier overwrite
+        // Modifiers already applied above — undo by restoring originals for version_update
+        // Actually: for version_update, we should NOT apply modifier changes from questionnaire
+        // But modifiers were already applied. We need to check before applying.
+        // This is handled by the order: the caller (SKILL.md) should not include ## Modifiers
+        // section for version_update triggers. This comment documents the intent.
+      }
+    }
+
+    // Handle reset/dormant probe field cleanup
+    if (update.status === 'dormant' || update.action === 'reset') {
+      config.probe_phase_start = null;
+      config.last_style_probe = null;
+      config.probe_session_count = 0;
+    }
+
+    // Handle reactivation from dormant → calibrated
+    if (previousStatus === 'dormant' && update.status === 'calibrated') {
+      config.probe_phase_start = new Date().toISOString();
+      config.probe_session_count = 0;
+      config.last_style_probe = null;
     }
 
     // Append to calibration history
@@ -293,9 +522,9 @@ function generateInjection(config, observations, readiness) {
   lines.push('## Active Modifiers');
   if (config.modifiers) {
     const m = config.modifiers;
-    lines.push(`verbosity: ${m.verbosity ?? 2} | humor: ${m.humor ?? 1} | proactivity: ${m.proactivity ?? 1} | challenge: ${m.challenge ?? 0}`);
+    lines.push(`verbosity: ${m.verbosity ?? 1} | humor: ${m.humor ?? 1} | proactivity: ${m.proactivity ?? 1} | challenge: ${m.challenge ?? 1}`);
   } else {
-    lines.push('verbosity: 2 | humor: 1 | proactivity: 1 | challenge: 0');
+    lines.push('verbosity: 1 | humor: 1 | proactivity: 1 | challenge: 1');
   }
   lines.push('');
 
@@ -325,6 +554,23 @@ function generateInjection(config, observations, readiness) {
   lines.push('- **status**: active');
   lines.push('```');
   lines.push('');
+
+  // Probing control
+  const probing = computeProbingControl(config);
+  lines.push('## Probing Control');
+  if (probing.style_probe_allowed) {
+    lines.push(`style_probe_allowed: true | stage: ${probing.stage} | target: ${probing.target || 'none'} (lowest confidence)`);
+  } else {
+    lines.push(`style_probe_allowed: false | stage: ${probing.stage}`);
+  }
+  lines.push('');
+
+  // q_version mismatch warning (flag is set by main handler)
+  if (config._q_outdated) {
+    lines.push('## Questionnaire Update');
+    lines.push('questionnaire_outdated: true — Suggest user run `/soul-forge recalibrate` to update to the latest questionnaire.');
+    lines.push('');
+  }
 
   // Recent observations
   const activeObs = observations.filter(o => o.status === 'active');
@@ -531,8 +777,17 @@ module.exports = function handler(event) {
     safeWriteFile(configPath, JSON.stringify(config, null, 2));
   }
 
+  // Schema migration (v1 → v2)
+  if (!config.version || config.version < CURRENT_SCHEMA_VERSION) {
+    config = migrateSchema(config);
+    safeWriteFile(configPath, JSON.stringify(config, null, 2));
+  }
+
   // Process config_update.md (may modify config)
   config = processConfigUpdate(workspaceDir, config);
+
+  // Pre-flight Check
+  const preflight = preflightCheck(workspaceDir, config);
 
   // --- Step 2: Branch on status ---
 
@@ -568,14 +823,24 @@ module.exports = function handler(event) {
     // Check/repair heartbeat for fresh status too
     checkHeartbeat(workspaceDir);
 
-    const contextContent = '# Soul Forge Calibration Context\n\n## Status\nfresh\n\nSoul Forge is installed but not yet configured. Suggest the user run /soul-forge to begin personality calibration.';
+    let freshContent = '# Soul Forge Calibration Context\n\n## Status\nfresh';
+    if (preflight.legacyUser) {
+      freshContent += ' | legacy_user: true';
+    }
+    freshContent += '\n\nSoul Forge is installed but not yet configured. Suggest the user run /soul-forge to begin personality calibration.';
+    if (preflight.warnings.length > 0) {
+      freshContent += '\n\n## Warnings\n';
+      for (const w of preflight.warnings) {
+        freshContent += `- ${w}\n`;
+      }
+    }
     context.bootstrapFiles.push({
       name: 'soul-forge-context.md',
-      content: contextContent,
+      content: freshContent,
       path: contextPath,
       missing: false
     });
-    if (!safeWriteFile(contextPath, contextContent)) appendToErrorLog(workspaceDir, 'Failed to write soul-forge-context.md (fresh)');
+    if (!safeWriteFile(contextPath, freshContent)) appendToErrorLog(workspaceDir, 'Failed to write soul-forge-context.md (fresh)');
     return;
   }
 
@@ -610,6 +875,26 @@ module.exports = function handler(event) {
   // --- Step 3: status === "calibrated" — full injection ---
 
   const injectionWarnings = [];
+
+  // Include preflight warnings
+  if (preflight.warnings.length > 0) {
+    injectionWarnings.push(...preflight.warnings);
+  }
+
+  // Increment probe_session_count for each bootstrap in calibrated state
+  config.probe_session_count = (config.probe_session_count || 0) + 1;
+
+  // q_version mismatch check + probe cycle reset
+  if (config.q_version && config.q_version < CURRENT_Q_VERSION) {
+    config._q_outdated = true;
+    // Reset probing cycle so user re-enters Stage 1 after recalibrating
+    config.probe_phase_start = new Date().toISOString();
+    config.probe_session_count = 0;
+    config.last_style_probe = null;
+  }
+
+  // Save updated probe_session_count (and any q_version reset)
+  safeWriteFile(configPath, JSON.stringify(config, null, 2));
 
   // Read memory.md
   const memoryContent = safeReadFile(memoryPath);

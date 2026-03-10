@@ -5,7 +5,7 @@
 
 ---
 
-## MVP Phase 1 — Current Status (Updated: 2026-02-17)
+## MVP Phase 1 — Current Status (Updated: 2026-02-18)
 
 **Overall: MVP Phase 1 Complete — All Validations Passed (R35, 2026-02-17)**
 **Note:** Issue #20 (context.md ENOENT) remains mitigated/ongoing — non-blocking, no regression in R35.
@@ -15,7 +15,8 @@
 |-----------|--------|---------------|
 | SKILL.md (Sections A-M, 1310 lines) | ✅ Complete | R18d (2026-02-17) |
 | handler.js (Bootstrap Hook) | ✅ Complete | R18c (2026-02-16) |
-| Install Script (.soul_history/ step) | ✅ Complete | R18d (2026-02-17) |
+| Install Script (.soul_history/ step) | ✅ Complete | R37 (2026-02-18, 自动化 51/51) |
+| Customer Install Script | ✅ Complete (hooks auto-enable + Setup.bat) | R37 (2026-02-18, 自动化 55/55) |
 | config.json schema | ✅ Complete | R15 (2026-02-15) |
 | HEARTBEAT_SEGMENT.md | ✅ Complete | R15 (2026-02-15) |
 | INIT Templates (.soul_forge/) | ✅ Complete | R18d (2026-02-17) |
@@ -23,8 +24,8 @@
 ### Issue Summary
 | Category | Count |
 |----------|-------|
-| Total Issues Found | 19 |
-| CLOSED | 17 (全部已验证, R35) |
+| Total Issues Found | 22 |
+| CLOSED | 20 (R35 验证 17 + R36 新增 2 + R37 新增 1) |
 | ACCEPTED (won't fix) | 1 (BUG-1) |
 | ONGOING (mitigated) | 1 (#20 ENOENT) |
 
@@ -49,6 +50,8 @@
 | R18c | 02-16 | Pre-release hardening (agent 行为约束) | 5/5 回归通过 |
 | R18d | 02-17 | #24/#25/#26 修复 + INIT 保护 | 代码完成 |
 | R35 | 02-17 | V-1~V-3 最终验证 | **全部通过** |
+| R36 | 02-17 | Customer Install 端到端自动化测试 (5 Suites, 41 Assertions) | **41/41 PASS**, 2 bug 修复 (#27/#28) |
+| R37 | 02-18 | Customer Install 一键化: hooks 自动启用 + Setup.bat + 测试扩展 (7 Suites, 55 Assertions) | **55/55 PASS**, #29 |
 
 > Detail: [docs/archive/Test_Feedback_R1-R18d_Detail.md](../docs/archive/Test_Feedback_R1-R18d_Detail.md)
 

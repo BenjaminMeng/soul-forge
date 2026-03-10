@@ -38,3 +38,5 @@ Then rebuild OpenClaw.
 - **Test Log:** `mvp/Soul_Forge_Test_Feedback.md`
 - **Issue Record:** `mvp/Soul_Forge_Issue_Record.md`
 - **Architecture:** `docs/Soul_Forge_Architecture_v3.1.md`
+- **Business Plan:** `docs/SoulForge_Business_Plan.md`
+- **Phase 2 Plan:** `docs/Soul_Forge_Phase2_Plan.md`

@@ -37,8 +37,10 @@ $completedSteps = @()
 function Write-Log {
     param([string]$Message, [string]$Color = "White")
     Write-Host $Message -ForegroundColor $Color
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$timestamp  $Message" | Out-File -Append -FilePath $LOG_FILE -Encoding UTF8
+    if (-not $WhatIfPreference) {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        "$timestamp  $Message" | Out-File -Append -FilePath $LOG_FILE -Encoding UTF8
+    }
 }
 
 function Write-RollbackGuide {
@@ -73,7 +75,9 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Initialize log
-"" | Out-File -FilePath $LOG_FILE -Encoding UTF8
+if (-not $WhatIfPreference) {
+    "" | Out-File -FilePath $LOG_FILE -Encoding UTF8
+}
 Write-Log "Soul Forge Customer Install started"
 Write-Log "Script directory: $SCRIPT_DIR"
 if ($WhatIfPreference) {
@@ -146,11 +150,15 @@ try {
                 New-Item -ItemType Directory -Force -Path $HISTORY_DIR | Out-Null
             }
         }
-        if ($PSCmdlet.ShouldProcess($soulPath, "Backup SOUL.md")) {
-            Copy-Item $soulPath $backupDest -Force
+        if (Test-Path $backupDest) {
+            Write-Log "  SOUL_BEFORE_SOULFORGE.md already exists, preserving original." DarkYellow
+        } else {
+            if ($PSCmdlet.ShouldProcess($soulPath, "Backup SOUL.md")) {
+                Copy-Item $soulPath $backupDest
+            }
+            Write-Log "  SOUL.md -> SOUL_BEFORE_SOULFORGE.md" Gray
+            $backupsMade++
         }
-        Write-Log "  SOUL.md -> SOUL_BEFORE_SOULFORGE.md" Gray
-        $backupsMade++
     }
 
     # IDENTITY.md
@@ -162,11 +170,15 @@ try {
                 New-Item -ItemType Directory -Force -Path $HISTORY_DIR | Out-Null
             }
         }
-        if ($PSCmdlet.ShouldProcess($identityPath, "Backup IDENTITY.md")) {
-            Copy-Item $identityPath $backupDest -Force
+        if (Test-Path $backupDest) {
+            Write-Log "  IDENTITY_BEFORE_SOULFORGE.md already exists, preserving original." DarkYellow
+        } else {
+            if ($PSCmdlet.ShouldProcess($identityPath, "Backup IDENTITY.md")) {
+                Copy-Item $identityPath $backupDest
+            }
+            Write-Log "  IDENTITY.md -> IDENTITY_BEFORE_SOULFORGE.md" Gray
+            $backupsMade++
         }
-        Write-Log "  IDENTITY.md -> IDENTITY_BEFORE_SOULFORGE.md" Gray
-        $backupsMade++
     }
 
     # HEARTBEAT.md
@@ -178,22 +190,30 @@ try {
                 New-Item -ItemType Directory -Force -Path $HISTORY_DIR | Out-Null
             }
         }
-        if ($PSCmdlet.ShouldProcess($heartbeatPath, "Backup HEARTBEAT.md")) {
-            Copy-Item $heartbeatPath $backupDest -Force
+        if (Test-Path $backupDest) {
+            Write-Log "  HEARTBEAT_BEFORE_SOULFORGE.md already exists, preserving original." DarkYellow
+        } else {
+            if ($PSCmdlet.ShouldProcess($heartbeatPath, "Backup HEARTBEAT.md")) {
+                Copy-Item $heartbeatPath $backupDest
+            }
+            Write-Log "  HEARTBEAT.md -> HEARTBEAT_BEFORE_SOULFORGE.md" Gray
+            $backupsMade++
         }
-        Write-Log "  HEARTBEAT.md -> HEARTBEAT_BEFORE_SOULFORGE.md" Gray
-        $backupsMade++
     }
 
     # openclaw.json
     $openclawJson = Join-Path $CONFIG_DIR "openclaw.json"
     if (Test-Path $openclawJson) {
         $backupDest = Join-Path $CONFIG_DIR "openclaw.before-soulforge.json"
-        if ($PSCmdlet.ShouldProcess($openclawJson, "Backup openclaw.json")) {
-            Copy-Item $openclawJson $backupDest -Force
+        if (Test-Path $backupDest) {
+            Write-Log "  openclaw.before-soulforge.json already exists, preserving original." DarkYellow
+        } else {
+            if ($PSCmdlet.ShouldProcess($openclawJson, "Backup openclaw.json")) {
+                Copy-Item $openclawJson $backupDest
+            }
+            Write-Log "  openclaw.json -> openclaw.before-soulforge.json" Gray
+            $backupsMade++
         }
-        Write-Log "  openclaw.json -> openclaw.before-soulforge.json" Gray
-        $backupsMade++
     }
 
     if ($backupsMade -eq 0) {
@@ -386,15 +406,30 @@ try {
             $hooksEnabled = $true
         }
         if (-not $hooksEnabled) {
-            Write-Log "  NOTE: hooks.internal.enabled is not set to true in openclaw.json" Yellow
-            Write-Log "  Soul Forge Bootstrap Hook requires this setting." Yellow
-            Write-Log "  You may need to add the following to openclaw.json:" Yellow
-            Write-Log '    "hooks": { "internal": { "enabled": true } }' Yellow
+            Write-Log "  hooks.internal.enabled not set — auto-enabling..." Yellow
+            if ($PSCmdlet.ShouldProcess($openclawJson, "Enable hooks.internal.enabled")) {
+                # Build hooks.internal.enabled into existing config, preserving other fields
+                if (-not $config.hooks) {
+                    $config | Add-Member -NotePropertyName "hooks" -NotePropertyValue ([pscustomobject]@{}) -Force
+                }
+                if (-not $config.hooks.internal) {
+                    $config.hooks | Add-Member -NotePropertyName "internal" -NotePropertyValue ([pscustomobject]@{}) -Force
+                }
+                $config.hooks.internal | Add-Member -NotePropertyName "enabled" -NotePropertyValue $true -Force
+                $config | ConvertTo-Json -Depth 10 | Out-File $openclawJson -Encoding UTF8
+            }
+            Write-Log "  hooks.internal.enabled = true — auto-enabled" Green
         } else {
             Write-Log "  hooks.internal.enabled = true — OK" Green
         }
     } else {
-        Write-Log "  openclaw.json not found — hooks setting needs manual configuration." Yellow
+        Write-Log "  openclaw.json not found — creating with hooks enabled..." Yellow
+        if ($PSCmdlet.ShouldProcess($openclawJson, "Create openclaw.json with hooks enabled")) {
+            @{ hooks = @{ internal = @{ enabled = $true } } } |
+                ConvertTo-Json -Depth 3 |
+                Out-File $openclawJson -Encoding UTF8
+        }
+        Write-Log "  openclaw.json created with hooks.internal.enabled = true" Green
     }
 
     # File verification
@@ -444,7 +479,9 @@ Write-Log "  Installation Summary" Cyan
 Write-Log "============================================" Cyan
 
 Write-Log "  Completed steps: $($completedSteps -join ', ')" Green
-Write-Log "  Log saved to: $LOG_FILE" Gray
+if (-not $WhatIfPreference) {
+    Write-Log "  Log saved to: $LOG_FILE" Gray
+}
 
 if ($WhatIfPreference) {
     Write-Log ""

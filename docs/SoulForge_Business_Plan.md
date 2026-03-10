@@ -200,7 +200,7 @@ Soul Forge 提供一个三层架构：
 
 1. **确定性输出**：8 题 DISC 问卷 → 映射表 → 角色模板拼接，可复现、可审计
 2. **用户定制保护**：Pre-flight Check 检测已有配置 → 快照保存 → 渐进内化，不破坏用户现有体验
-3. **非破坏性写入**：锚点式合并只修改管辖段落，保留 OpenClaw 底包和用户其他配置
+3. **非破坏性写入**：模板填充 + 整体写入只修改管辖段落，保留 OpenClaw 底包和用户其他配置
 4. **多平台适配**：一次输入，输出到多个 Agent 框架格式
 5. **渐进式人格发现**：MVP 确定角色基底，Phase 2 Skill 通过对话学习发现沟通风格偏好
 
@@ -217,10 +217,12 @@ Phase 1: OpenClaw Skill (MVP 已完成, 2026-02-17)
     Pre-flight Check → 快照保护 → 模板填充 + 整体写入
     状态管理 (pause/resume/reset) + Heartbeat 观察
 
-Phase 2: 高级个性化 (当前状态: 设计完成，按用户反馈优先级实现)
-    修饰符对话学习（Humor/Verbosity/Proactivity/Challenge）
-    主副视角动态调整
-    发布到 ClawHub，支持 Agent 内调用
+Phase 2: 高级个性化 (当前状态: 规划确认，见 docs/Soul_Forge_Phase2_Plan.md)
+    问卷改版（场景化 + 双轴 modifier 提取）
+    修饰符三阶段发现（问卷初值 → Heartbeat → 主动探测）
+    7 模型适配（Kimi K2.5, Gemini 3 Flash, Claude Sonnet 4.5, GLM-5, MiniMax M2.5, DeepSeek V3.2, GPT-5.1 Codex）
+    完整 Pre-flight Check + Schema 迁移 + 版本追踪
+    发布到 ClawHub + Plugin
 
 Phase 3: Web SaaS
     静态前端 + API 后端
@@ -280,14 +282,18 @@ Phase 4: 智能推荐引擎
 | 维度 | 含义 | 取值范围 | 默认值 |
 |---|---|---|---|
 | **Humor (幽默度)** | 回复中幽默/戏谑的浓度 | 0-3 | 1 |
-| **Verbosity (话语量)** | 回复的长度和详细程度 | 0-3 | 2 |
+| **Verbosity (话语量)** | 回复的长度和详细程度 | 0-3 | 1 |
 | **Proactivity (主动性)** | 是否主动提出建议和发现 | 0-3 | 1 |
-| **Challenge (挑战度)** | 是否挑战用户观点、戏谑式互动 | 0-3 | 0 |
+| **Challenge (挑战度)** | 是否挑战用户观点、戏谑式互动 | 0-3 | 1 |
 
-**发现机制：** 修饰符不通过问卷获取，而是通过 Phase 2 Skill 在日常对话中渐进发现：
-- **学习期**（1-14 天）：以"AI 学习人类表达方式"为伪装，偶尔提供两种表达供用户选择
-- **校准期**（15-30 天）：自然对话中试探不同风格，观察用户反应
-- **成熟期**（30 天+）：纯观察，不再主动试探，参数趋于稳定
+> **默认值说明：** 默认值为无信号时的兜底值（统一中间值 1）。实际初始值由问卷副轴提取决定。Phase 1 曾基于 DISC 类型差异化（如 S 型 Verbosity=2, Challenge=0），Phase 2 已取消该假设。
+
+**发现机制（Phase 2 确认，详见 Phase2_Plan.md Section 3.3）：**
+- **问卷副轴提取**：8 题问卷选项携带预定义 modifier 权重，提供初始值
+- **Stage 1 伪装问答**（第 1-14 天）：以"AI 学习人类表达方式"为伪装，提供两种表达供用户选择。频率由 handler.js 精确控制（双门槛：≥3次会话且≥1天 / ≥7次或≥5天）
+- **Stage 2 风格试探**（第 15-30 天）：自然对话中试探不同风格，观察用户反应（频率更宽松）
+- **Stage 3 成熟期**（第 30 天+）：纯观察，停止所有主动探测，参数趋于稳定
+- **版本重置**：问卷版本更新时，探测周期归零重新开始
 
 ### 5.5 关键技术实现
 
@@ -311,7 +317,7 @@ MVP 简化版：读取 config.json status 字段进行路由
   └── status = "declined"   → 已拒绝（重新展示隐私声明）
 ```
 
-完整版 Pre-flight Check（对比原始模板、检测用户定制）为 Phase 2 范围。
+完整版 Pre-flight Check（schema 校验 + 文件完整性 + 版本迁移 + 老用户参数推断）为 Phase 2 范围（详见 Phase2_Plan.md Section 3.4）。
 
 #### .soul_history 快照管理
 
@@ -327,14 +333,28 @@ MVP 简化版：读取 config.json status 字段进行路由
 
 ```json
 {
-  "version": "3.1",
+  "version": 1,
   "status": "calibrated",
-  "disc_type": "S",
-  "disc_scores": {"D": 2, "I": 3, "S": 6, "C": 1},
-  "paused": false,
+  "disc": {
+    "primary": "S",
+    "secondary": "C",
+    "confidence": "high",
+    "scores": {"D": 2, "I": 3, "S": 6, "C": 1},
+    "answers_hash": null
+  },
+  "modifiers": {
+    "humor": 1,
+    "verbosity": 1,
+    "proactivity": 1,
+    "challenge": 1
+  },
+  "boundaries_preference": "default",
+  "merge_failed": false,
   "calibration_history": [
     {"action": "calibrate", "type": "S", "timestamp": "..."}
-  ]
+  ],
+  "created_at": "2026-02-12T19:30:00Z",
+  "updated_at": "2026-02-12T19:30:00Z"
 }
 ```
 
@@ -375,7 +395,7 @@ MVP 简化版：读取 config.json status 字段进行路由
 付费版 (Soul Forge Pro) $19.99:
   - 完整 8 题 DISC 情景问卷
   - Pre-flight Check + .soul_history 自动备份
-  - 非破坏性 Smart Merge 写入
+  - 非破坏性模板填充写入（管辖段覆盖 + 非管辖段保留）
   - 修饰符对话学习（4 维度渐进发现）
   - 主副视角动态调整
 
@@ -706,59 +726,74 @@ DISC 理论 → 所有人都能读论文
 
 ## 11. 里程碑路线图
 
-### 第 1 周：启动
+> **时间线说明：** MVP Phase 1 于 2026-02-17 验证完成（R35）。以下里程碑以 GTM 启动日（2026-02-17）为 Week 0 重新编排。已完成的技术里程碑标记为 ✅。
 
-- [ ] Upwork/Fiverr 账号注册并上架 OpenClaw 配置服务
-- [ ] 加入 OpenClaw Discord，开始活跃回答 SOUL.md 问题
-- [ ] souls.directory 提交 2 个高质量模板
+### ✅ 已完成：MVP Phase 1（2026-02-13 ~ 2026-02-17）
 
-### 第 2-3 周：v2 核心实现
+- [x] DISC 8 题情景问卷设计 + 4 套角色模板
+- [x] OpenClaw 原生 Skill（SKILL.md, 1310 行）+ Bootstrap Hook（handler.js）
+- [x] Pre-flight Check（简化版，基于 config.json status 路由）
+- [x] config.json 状态机 + .soul_history 快照机制
+- [x] 状态命令（pause/resume/reset/recalibrate）
+- [x] HEARTBEAT 观察协议 + memory.md 追加记录
+- [x] 35 轮测试，19 issue 中 17 CLOSED / 1 ACCEPTED / 1 ONGOING
+- [x] 客户安装脚本（Soul_Forge_Customer_Install.ps1）
+- [x] 文档收尾（归档 + CLAUDE.md 升级 + Business Plan 技术对齐）
 
-- [ ] soul_weaver.py v2 重写（8 题 DISC 问卷 + 角色模板 + Pre-flight Check）
-- [ ] 设计 8 道 DISC 情景问卷题目
-- [ ] 编写 4 套 DISC 角色模板文本
-- [ ] 实现 config.json + .soul_history 快照机制
+### Week 1-2：GTM 启动（社区渗透 + 服务上架）
 
-### 第 4-5 周：Skill 化
+- [ ] 加入 OpenClaw Discord，开始每日活跃回答 SOUL.md 问题（30 min/天）
+- [ ] Upwork/闲鱼上架 "OpenClaw 配置 + AI 人格设计" 安装服务
+- [ ] souls.directory 提交 2-3 个高质量 DISC 模板（带 Soul Forge 品牌）
+- [ ] 注册 Fiverr 并上架服务
 
-- [ ] Soul Weaver 改造为 ClawHub Skill 格式
-- [ ] 实现修饰符对话学习机制
-- [ ] 编写 Skill 文档和使用指南
-- [ ] 发布到 ClawHub（免费版 + Pro 版）
-- [ ] Gumroad 上架模板包
+### Week 3-4：内容营销 + 首批用户
 
-### 第 6 周：内容营销
+- [ ] Medium 发布方法论文章："Why your SOUL.md doesn't work — and how cognitive science fixes it"
+- [ ] GitHub Discussions 发布技术长帖：DISC-based SOUL.md 方法论
+- [ ] 完成首单安装服务（闲鱼或 Upwork）
+- [ ] 收集前 5-10 个用户反馈（使用 Soul_Forge_User_Feedback_Template.md）
 
-- [ ] Medium 发布 DISC 方法论文章
-- [ ] GitHub Discussions 发布长帖
-- [ ] 收集前 10 个用户反馈
+### Week 3-6：技术 Phase 2 第一批（与 GTM 并行）
 
-### 第 7-10 周：Web MVP
+> **详细规划：** 见 `docs/Soul_Forge_Phase2_Plan.md`
 
-- [ ] 搭建 Soul Forge Web 版（前端+API）
-- [ ] 实现多格式导出（OpenClaw + Claude Code）
-- [ ] 集成支付（Stripe/Gumroad）
-- [ ] 内置匿名数据收集
+- [ ] P2-10: Schema 迁移机制（config.json v1→v2）+ P2-04: Pre-flight Check 增强 + P2-11: modifier 缺失兜底
+- [ ] P2-01: 问卷改版（场景化选项 + modifier 副轴预定义映射表）
+- [ ] P2-13: 隐私开场改版 + P2-02: 结果展示强约束
+- [ ] P2-03: 模型适配测试（7 模型：Kimi K2.5, Gemini 3 Flash, Claude Sonnet 4.5, GLM-5, MiniMax M2.5, DeepSeek V3.2, GPT-5.1 Codex）
+- [ ] P7: ClawHub 发布包制作
 
-### 第 11-14 周：数据飞轮
+### Week 7-10：技术 Phase 2 第二批 + ClawHub 发布
+
+- [ ] P2-05/06: 三阶段探测 + 频率控制实现
+- [ ] P2-07: reset 命令适配新字段
+- [ ] P2-08: 老用户参数推断 + P2-14: 老用户融合选项（内容比对 + 融合 UI）
+- [ ] P2-09: answers_hash + q_version 实现
+- [ ] P2-12: ClawHub 发布 + Plugin 制作
+- [ ] 收集前 20-50 个用户反馈
+
+### Week 11-14：数据飞轮
 
 - [ ] 集成 Langfuse 进行效果追踪
 - [ ] 发起社区公开调研
 - [ ] 基于前 200 个数据点优化 DISC 映射参数和修饰符默认值
 - [ ] 增加 ElizaOS / Cursor 格式支持
 
-### 第 13-24 周：规模化
+### Week 15-24：Web SaaS + 规模化
 
+- [ ] 搭建 Soul Forge Web 版（前端 + API）
+- [ ] 实现多格式导出（OpenClaw + Claude Code + Cursor）
+- [ ] 集成支付（Stripe/Gumroad）
 - [ ] 推出场景化人格推荐功能
 - [ ] 启动 A/B 测试
-- [ ] 开发企业版原型
-- [ ] 发布 Soul Forge Personality Schema 开放标准
 
-### 第 25-48 周：壁垒深化
+### Week 25-48：壁垒深化
 
 - [ ] 智能推荐引擎上线
 - [ ] 企业客户拓展
 - [ ] 数据 API 开放
+- [ ] 发布 Soul Forge Personality Schema 开放标准
 - [ ] 考虑融资或团队扩展
 
 ---
@@ -790,7 +825,7 @@ DISC 理论 → 所有人都能读论文
 | 修饰符 | 叠加在 DISC 角色基底上的 4 维沟通风格参数（Humor/Verbosity/Proactivity/Challenge） |
 | 核心内核 | 所有角色共享的底层承诺："始终在场、关注需求" |
 | Pre-flight Check | 运行前检测机制，区分全新模板/已使用用户/二次运行三种状态 |
-| Smart Merge | 锚点式局部更新——按 H2 标题切分，只替换管辖段落，保留其他内容 |
+| 模板填充 + 整体写入 | 从 SKILL.md 内嵌模板填充变量后整体写入 SOUL.md，管辖段覆盖、非管辖段（如 Continuity）保留（Decision #74，取代早期 Smart Merge 设计） |
 | BDI 模型 | Belief-Desire-Intention，v2 中改为 Skill 运行时行为逻辑（非人格分类） |
 | SOUL.md | OpenClaw 的 Agent 行为哲学定义文件 |
 | IDENTITY.md | OpenClaw 的 Agent 身份元数据文件 |
@@ -823,6 +858,7 @@ OpenClaw_Indiviual_SOUL.md/
 │   └── Soul_Forge_Issue_Record.md
 ├── docs/                      # 设计文档
 │   ├── Soul_Forge_Architecture_v3.1.md   # v3.1 架构规范
+│   ├── Soul_Forge_Phase2_Plan.md         # Phase 2 规划文档
 │   ├── SoulForge_Business_Plan.md        # 本文档
 │   └── archive/                          # 归档文档
 └── .claude/                   # Claude Code 设置

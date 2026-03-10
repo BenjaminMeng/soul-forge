@@ -8,11 +8,21 @@ Soul Forge is a DISC-based AI personality calibration system for OpenClaw. It co
 
 **MVP Phase 1: COMPLETE** (R35, 2026-02-17 验证通过)
 - DISC 8 题问卷 + 4 型模板 + Bootstrap Hook + 状态命令 + Heartbeat 观察
-- 19 issues: 17 CLOSED (全部已验证), 1 ACCEPTED (BUG-1), 1 ONGOING mitigated (#20 ENOENT, 非阻塞)
-- R35 无回归，#20 仍非阻塞跟踪
+- 22 issues: 20 CLOSED (R35 验证 17 + R36 新增 2 + R37 新增 1), 1 ACCEPTED (BUG-1), 1 ONGOING mitigated (#20 ENOENT, 非阻塞)
+- R37 Customer Install 一键化: hooks 自动启用 + Setup.bat 双击入口, 自动化测试 55/55 PASS (#29)
 - M1-M14 全部 ✅ (见 Architecture v3.1 Section 19)
 
-**Next Phase:** GTM 执行 (Business Plan Section 7.1) + Phase 2 按用户反馈优先级推进
+**Phase 2: CODE COMPLETE** (2026-02-19 代码实现完成，待测试验证)
+- WP0 Foundation: Schema v2 迁移 + Pre-flight Check + modifier 默认值统一 ✅
+- WP2 Probing: 三阶段探测 + 双门槛频率控制 + computeProbingControl() ✅
+- WP1 Questionnaire: 隐私开场改版 + modifier 副轴映射 + answers_hash + q_version ✅
+- WP3 Legacy Users: 老用户检测 + 参数推断 + 融合 UI ✅
+- WP4 Reset + Checklist: v2 字段清理 + Section K 补全 + dormant 重激活 ✅
+- WP5 Model Adaptation: Section N 模型自识别 + MANDATORY 标记密度审查 ✅
+- WP6 Distribution: 安装脚本 v2 config.json 更新 ✅
+- 待完成: 问卷内容迭代（32 个场景化选项需人工设计）+ 7 模型跨模型测试
+
+**Next Phase:** Phase 2 测试验证 + 问卷内容设计 + GTM 执行 (Business Plan Section 7.1)
 
 ## Directory Structure
 
@@ -36,6 +46,7 @@ OpenClaw_Indiviual_SOUL.md/
 │   └── Soul_Forge_Issue_Record.md
 ├── docs/                      # Design documents
 │   ├── Soul_Forge_Architecture_v3.1.md
+│   ├── Soul_Forge_Phase2_Plan.md
 │   ├── Soul_Forge_v3_Review.md
 │   ├── SoulForge_Business_Plan.md
 │   └── archive/               # Superseded documents
@@ -91,7 +102,7 @@ Original install script placed `.soul_forge/` in `~/.openclaw/.soul_forge/` (CON
 
 ## Pitfall Quick Reference
 
-从 35 轮测试中提炼的关键教训，避免重蹈覆辙：
+从 36 轮测试中提炼的关键教训，避免重蹈覆辙：
 
 | 坑 | 教训 | 首次出现 | 详情 |
 |----|------|---------|------|
@@ -101,14 +112,17 @@ Original install script placed `.soul_forge/` in `~/.openclaw/.soul_forge/` (CON
 | Agent 绕过架构约束 | Agent 可能直写 config.json 或自修复绕过路由，需 FORBIDDEN + STRICT 规则 | R23-R24 (#22/#23) | Issue Record #22, #23 |
 | config_update.md 竞态 | 同会话内多次写 config_update.md 会覆盖，需 Session Merge Rule | R20 (#21) | Issue Record #21 |
 | DeepSeek 指令跟随力 | 新增 SKILL.md 指令不一定被 DeepSeek Chat 遵循，需 MANDATORY 标记 + 测试验证 | R24 (T-R18b-3) | Test Feedback R18b |
+| WhatIf 副作用泄漏 | -WhatIf / dry-run 路径中所有 I/O（日志、文件写入、提示文案）都须受 `$WhatIfPreference` 保护，否则"预览"仍会落盘 | R36 (#27) | Issue Record #27 |
+| 备份无条件覆盖 | 备份目标用 `-Force` 会在 upgrade 场景静默丢失首次原始备份；备份前必须 `Test-Path` 跳过已存在 | R36 (#28) | Issue Record #28 |
 
 ## Document Navigation
 
 | 文档 | 位置 | 用途 | 什么时候读 |
 |------|------|------|-----------|
-| Architecture v3.1 | docs/Soul_Forge_Architecture_v3.1.md | 完整设计规范（2000+ 行） | 需要理解设计决策、Phase 2 范围时 |
+| Architecture v3.1 | docs/Soul_Forge_Architecture_v3.1.md | 完整设计规范（2000+ 行） | 需要理解设计决策时 |
+| Phase 2 Plan | docs/Soul_Forge_Phase2_Plan.md | Phase 2 规划（29 轮苏格拉底问答确认） | Phase 2 实施、理解 Phase 2 范围时 |
 | Business Plan v2.1 | docs/SoulForge_Business_Plan.md | 商业策略 + 市场分析 + 财务预测 | GTM 规划、定价决策时 |
-| Issue Record | mvp/Soul_Forge_Issue_Record.md | 19 个 issue 索引 + R1 postmortem | 排查已知问题、避免重复踩坑时 |
+| Issue Record | mvp/Soul_Forge_Issue_Record.md | 22 个 issue 索引 + R1 postmortem | 排查已知问题、避免重复踩坑时 |
 | Test Feedback | mvp/Soul_Forge_Test_Feedback.md | 当前状态摘要 + 轮次总结索引 | 了解测试覆盖和当前质量状态时 |
 | Test Detail Archive | docs/archive/Test_Feedback_R1-R18d_Detail.md | R1-R18d 逐轮详细日志 | 需要考古具体轮次细节时 |
 | Install Script | mvp/Soul_Forge_MVP_Install.ps1 | 开发者本地安装 | 本地部署时 |
@@ -127,4 +141,7 @@ Original install script placed `.soul_forge/` in `~/.openclaw/.soul_forge/` (CON
 | 版本 | 日期 | 内容 | 验证 | 快照 |
 |------|------|------|------|------|
 | MVP Phase 1 | 2026-02-17 | DISC 问卷 + 4 型模板 + Bootstrap Hook + 状态命令 + Heartbeat 观察 | R35 V-1~V-3 全部通过 | docs/archive/MVP_Phase1_Snapshot_20260217/ |
-| Phase 2 | TBD | P1-P8 (见 Architecture Section 19) | — | — |
+| Customer Install v1 | 2026-02-17 | Customer Install 脚本 3 bug 修复 + 端到端自动化测试 (5 Suites, 41 Assertions) | R36 41/41 PASS | mvp/Test-CustomerInstall.ps1 |
+| Customer Install v2 | 2026-02-18 | 一键化: hooks 自动启用 + Setup.bat 双击入口 (7 Suites, 55 Assertions) | R37 55/55 PASS | mvp/Test-CustomerInstall.ps1 |
+| Phase 2 Plan | 2026-02-19 | 29 轮苏格拉底问答确认 Phase 2 范围（14 项纳入 / 5 项延后） | — | docs/Soul_Forge_Phase2_Plan.md |
+| Phase 2 Code | 2026-02-19 | Schema v2 + 三阶段探测 + 问卷双轴 + 老用户融合 + 模型适配 + Pre-flight Check | 待测试 | — |
