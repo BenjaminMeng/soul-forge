@@ -5,8 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', '..', '..');
-// ROOT = D:\Coding\OpenClaw_Indiviual_SOUL.md (worktree is at .claude/worktrees/determined-benz)
+const ROOT = path.resolve(__dirname, '..');
+// ROOT = D:\Coding\OpenClaw_Indiviual_SOUL.md
 const SKILL_PATH = path.join(ROOT, 'src', 'skills', 'soul-forge', 'SKILL.md');
 const HANDLER_PATH = path.join(ROOT, 'src', 'hooks', 'soul-forge-bootstrap', 'handler.js');
 const CONFIG_SRC = path.join(ROOT, 'src', '.soul_forge', 'config.json');

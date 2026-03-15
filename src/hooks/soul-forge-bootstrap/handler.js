@@ -129,7 +129,7 @@ function preflightCheck(workspaceDir, config) {
     if (soulContent) {
       // Check if SOUL.md has non-default content (not just the basic template)
       const hasCustomContent = soulContent.includes('## Core Truths') &&
-        !soulContent.includes('soul-forge:v1:') &&
+        !/soul-forge:v\d+:/.test(soulContent) &&
         soulContent.length > 200;
       if (hasCustomContent) {
         legacyUser = true;
@@ -520,11 +520,21 @@ function generateInjection(config, observations, readiness) {
 
   // Active modifiers
   lines.push('## Active Modifiers');
+  const VERBOSITY_LABELS = ['ultra-brief(1-2 sentences max)', 'concise(short paragraphs)', 'standard', 'detailed(full explanations)'];
+  const HUMOR_LABELS = ['none', 'occasional', 'moderate', 'frequent'];
+  const PROACTIVITY_LABELS = ['reactive-only', 'low', 'moderate', 'high'];
+  const CHALLENGE_LABELS = ['none', 'gentle', 'moderate', 'direct-pushback'];
   if (config.modifiers) {
     const m = config.modifiers;
-    lines.push(`verbosity: ${m.verbosity ?? 1} | humor: ${m.humor ?? 1} | proactivity: ${m.proactivity ?? 1} | challenge: ${m.challenge ?? 1}`);
+    const vV = m.verbosity ?? 1; const hV = m.humor ?? 1; const pV = m.proactivity ?? 1; const cV = m.challenge ?? 1;
+    lines.push(`verbosity: ${vV} (${VERBOSITY_LABELS[vV] ?? 'standard'}) | humor: ${hV} (${HUMOR_LABELS[hV] ?? 'occasional'}) | proactivity: ${pV} (${PROACTIVITY_LABELS[pV] ?? 'moderate'}) | challenge: ${cV} (${CHALLENGE_LABELS[cV] ?? 'moderate'})`);
+    if (vV === 0) {
+      lines.push('**MANDATORY: verbosity=0 — reply in 1-2 sentences maximum for ALL responses. No exceptions.**');
+    } else if (vV === 1) {
+      lines.push('**verbosity=1 — keep replies concise. Prefer short paragraphs over long explanations.**');
+    }
   } else {
-    lines.push('verbosity: 1 | humor: 1 | proactivity: 1 | challenge: 1');
+    lines.push('verbosity: 1 (concise) | humor: 1 (occasional) | proactivity: 1 (low) | challenge: 1 (gentle)');
   }
   lines.push('');
 
@@ -891,6 +901,8 @@ module.exports = function handler(event) {
     config.probe_phase_start = new Date().toISOString();
     config.probe_session_count = 0;
     config.last_style_probe = null;
+  } else {
+    delete config._q_outdated;
   }
 
   // Save updated probe_session_count (and any q_version reset)
