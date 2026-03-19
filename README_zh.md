@@ -1,6 +1,6 @@
 # Soul Forge — AI 人格校准系统 (OpenClaw)
 
-> 让你的 AI 助手真正像「你的」AI 助手。
+> 看见请求背后的需求。
 
 [![Version](https://img.shields.io/badge/version-3.0--beta-blue)](https://github.com/BenjaminMeng/soul-forge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

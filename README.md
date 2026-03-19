@@ -1,6 +1,6 @@
 # Soul Forge — AI Personality Calibration for OpenClaw
 
-> Make your AI assistant feel like *your* AI assistant.
+> An AI that sees what you need, not just what you ask.
 
 [![Version](https://img.shields.io/badge/version-3.0--beta-blue)](https://github.com/BenjaminMeng/soul-forge/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
