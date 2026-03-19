@@ -24,34 +24,65 @@ Soul Forge is a **DISC-inspired behavioral style classification system** that ca
 | **S** | Butler | Steady, patient, service-oriented |
 | **C** | Critic | Precise, analytical, high-standards |
 
-## Quick Start
+## Installation
 
-### macOS / Linux
+### One-Line Install (any platform)
+
+```bash
+npx soul-forge-install
+```
+
+> Requires Node.js 14+. Preview first with `npx soul-forge-install --dry-run`.
+
+### From Git
+
+**macOS / Linux:**
 
 ```bash
 git clone https://github.com/BenjaminMeng/soul-forge.git
 cd soul-forge
-chmod +x install.sh setup.sh
-./setup.sh
+node installer.js
 ```
 
-### Windows (PowerShell)
+**Windows (PowerShell):**
 
 ```powershell
 git clone https://github.com/BenjaminMeng/soul-forge.git
 cd soul-forge
+node installer.js
+```
+
+Or use the platform-specific scripts:
+
+```bash
+# macOS / Linux
+chmod +x install.sh setup.sh && ./setup.sh
+
+# Windows
 .\Setup.bat
 ```
 
-Then restart OpenClaw and send `/soul-forge` in Telegram.
+### OpenClaw Native (coming soon)
 
-### Manual Install (any platform)
+```bash
+clawhub install soul-forge                          # Skill
+openclaw hooks install soul-forge-bootstrap          # Hook
+```
 
-1. Copy `skills/soul-forge/` to `~/.openclaw/skills/soul-forge/`
-2. Copy `hooks/soul-forge-bootstrap/` to `~/.openclaw/hooks/soul-forge-bootstrap/`
-3. Copy `.soul_forge/` to `~/.openclaw/workspace/.soul_forge/`
+### Manual Install
+
+1. Copy `skills/soul-forge/` → `~/.openclaw/skills/soul-forge/`
+2. Copy `hooks/soul-forge-bootstrap/` → `~/.openclaw/hooks/soul-forge-bootstrap/`
+3. Copy `.soul_forge/` → `~/.openclaw/workspace/.soul_forge/`
 4. Append `HEARTBEAT_SEGMENT.md` content to your `HEARTBEAT.md`
-5. Restart OpenClaw
+5. Enable hooks in `~/.openclaw/openclaw.json`: `{"hooks":{"internal":{"enabled":true}}}`
+6. Restart OpenClaw
+
+### After Installation
+
+1. Restart OpenClaw: `docker compose down && docker compose up -d`
+2. Check logs for: `loaded 4 internal hook handlers`
+3. Send `/soul-forge` in Telegram to start calibration
 
 ## Features
 
@@ -61,7 +92,7 @@ Then restart OpenClaw and send `/soul-forge` in Telegram.
 - **Hard-coded guardrails** — score validation, automatic secondary type derivation, shuffle detection
 - **4 personality templates** — Advisor, Partner, Butler, Critic
 
-### Continuous Learning (Phase 3)
+### Continuous Learning
 - **Sentiment analysis** — local mood tracking with negation-aware lexicon (EN + ZH)
 - **Drift detection** — tracks modifier preference shifts across sessions
 - **Staged change pipeline** — 4-gate admission review + validation window + auto-rollback
@@ -72,7 +103,7 @@ Then restart OpenClaw and send `/soul-forge` in Telegram.
 
 ### Privacy
 - **100% local** — all data stays on your machine in `.soul_forge/`
-- **No telemetry by default** — opt-in only (coming soon)
+- **No telemetry by default** — opt-in only
 
 ## Commands
 
@@ -112,14 +143,6 @@ Then restart OpenClaw and send `/soul-forge` in Telegram.
     │   └── telemetry.json                  # Anonymized metrics (local only)
     └── .soul_history/                      # Backups + archives
 ```
-
-## Privacy
-
-All data is stored locally in `~/.openclaw/workspace/.soul_forge/`. Nothing is sent to external servers. You can:
-
-- Run `/soul-forge reset` to restore defaults
-- Delete `.soul_forge/` to remove all Soul Forge data
-- Run `/soul-forge pause` to stop observation at any time
 
 ## Compatibility
 

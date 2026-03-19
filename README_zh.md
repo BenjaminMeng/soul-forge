@@ -24,34 +24,65 @@ Soul Forge 是一个**基于 DISC 的行为风格分类系统**，通过校准 A
 | **S** | 管家 | 稳定、耐心、服务导向 |
 | **C** | 评论家 | 精确、分析型、高标准 |
 
-## 快速开始
+## 安装
 
-### macOS / Linux
+### 一键安装（任意平台）
+
+```bash
+npx soul-forge-install
+```
+
+> 需要 Node.js 14+。可先预览：`npx soul-forge-install --dry-run`
+
+### 从 Git 安装
+
+**macOS / Linux：**
 
 ```bash
 git clone https://github.com/BenjaminMeng/soul-forge.git
 cd soul-forge
-chmod +x install.sh setup.sh
-./setup.sh
+node installer.js
 ```
 
-### Windows (PowerShell)
+**Windows (PowerShell)：**
 
 ```powershell
 git clone https://github.com/BenjaminMeng/soul-forge.git
 cd soul-forge
+node installer.js
+```
+
+也可以使用平台专用脚本：
+
+```bash
+# macOS / Linux
+chmod +x install.sh setup.sh && ./setup.sh
+
+# Windows
 .\Setup.bat
 ```
 
-然后重启 OpenClaw，在 Telegram 中发送 `/soul-forge` 即可开始。
+### OpenClaw 原生安装（即将支持）
 
-### 手动安装（任意平台）
+```bash
+clawhub install soul-forge                          # 安装 Skill
+openclaw hooks install soul-forge-bootstrap          # 安装 Hook
+```
+
+### 手动安装
 
 1. 将 `skills/soul-forge/` 复制到 `~/.openclaw/skills/soul-forge/`
 2. 将 `hooks/soul-forge-bootstrap/` 复制到 `~/.openclaw/hooks/soul-forge-bootstrap/`
 3. 将 `.soul_forge/` 复制到 `~/.openclaw/workspace/.soul_forge/`
 4. 将 `HEARTBEAT_SEGMENT.md` 的内容追加到你的 `HEARTBEAT.md`
-5. 重启 OpenClaw
+5. 在 `~/.openclaw/openclaw.json` 中启用 hooks：`{"hooks":{"internal":{"enabled":true}}}`
+6. 重启 OpenClaw
+
+### 安装后
+
+1. 重启 OpenClaw：`docker compose down && docker compose up -d`
+2. 检查日志中是否有：`loaded 4 internal hook handlers`
+3. 在 Telegram 中发送 `/soul-forge` 开始校准
 
 ## 功能特性
 
@@ -61,7 +92,7 @@ cd soul-forge
 - **硬编码防线** — 分数校验、副类型自动推导、选项打乱检测
 - **4 种人格模板** — 顾问、伙伴、管家、评论家
 
-### 持续学习（Phase 3）
+### 持续学习
 - **情绪分析** — 本地情绪追踪，支持否定词处理的情感词典（中英双语）
 - **漂移检测** — 跨会话追踪 modifier 偏好变化
 - **阶段式变更管线** — 四重准入审查 + 验证窗口 + 自动回滚
@@ -72,7 +103,7 @@ cd soul-forge
 
 ### 隐私保护
 - **100% 本地** — 所有数据存储在你的机器上
-- **默认无遥测** — 仅 opt-in（即将推出）
+- **默认无遥测** — 仅 opt-in
 
 ## 可用命令
 
@@ -112,14 +143,6 @@ cd soul-forge
     │   └── telemetry.json                  # 匿名化指标（仅本地）
     └── .soul_history/                      # 备份 + 归档
 ```
-
-## 隐私保护
-
-所有数据存储在本地 `~/.openclaw/workspace/.soul_forge/` 目录中，不会发送到任何外部服务器。你可以：
-
-- 运行 `/soul-forge reset` 恢复默认设置
-- 删除 `.soul_forge/` 目录以移除所有 Soul Forge 数据
-- 运行 `/soul-forge pause` 随时暂停观察
 
 ## 兼容性
 
