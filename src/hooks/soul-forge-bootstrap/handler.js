@@ -412,6 +412,18 @@ function processConfigUpdate(workspaceDir, config) {
       }
     }
 
+    // ── Hard guardrail: Option shuffle detection (Problem 1: options not shuffled) ──
+    if (config.disc && config.disc.option_order) {
+      const orders = config.disc.option_order.split(',');
+      const allSame = orders.length >= 8 && orders.every(o => o === orders[0]);
+      if (allSame) {
+        config.disc._options_not_shuffled = true;
+        appendToErrorLog(workspaceDir, `Option shuffle NOT performed: all ${orders.length} questions used same order "${orders[0]}". Agent should randomize options per question.`);
+      } else {
+        delete config.disc._options_not_shuffled;
+      }
+    }
+
     // Validation section removed — confidence is derived purely from score distribution.
     // Legacy: if a config_update.md happens to include ## Validation, it will be silently ignored.
 

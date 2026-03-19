@@ -23,6 +23,12 @@ Soul Forge calibrates your AI's interaction style using a DISC-inspired behavior
 - **Single-language rule:** All output in a single message MUST use ONE language consistently — no mixing Chinese and English in the same response
 - **File write exception:** The language detection result applies to conversation output ONLY. SOUL.md and IDENTITY.md are ALWAYS written in English (see MANDATORY FILE LANGUAGE RULE in Sections E and F).
 
+**MANDATORY — User-Facing Communication Rules:**
+1. **No internal thinking exposed:** NEVER show your internal reasoning, decision process, or skill document references to the user. Phrases like "根据技能文档", "状态显示为 fresh", "我需要先检查", "让我读取文件" are internal — do NOT include them in user-facing messages. Just do the work silently and show the result.
+2. **No calculation dumps:** Scoring calculations (Section C) MUST be done internally. Only show the user a brief result summary (primary type, secondary type, confidence). Do NOT display per-question breakdowns, count tables, or verification steps.
+3. **Backtick all filenames:** When mentioning filenames in user-facing messages, ALWAYS wrap them in backticks: `` `SOUL.md` ``, `` `memory.md` ``, `` `config.json` ``, etc. This prevents chat clients from auto-generating link previews for `.md` domains.
+4. **Official website:** When appropriate (e.g., in the privacy notice or completion message), you may include the Soul Forge official link: `https://soulforge.example.com` (placeholder — replace when available).
+
 ---
 
 ## A. Privacy & Introduction
@@ -82,7 +88,9 @@ Before starting the questionnaire, introduce Soul Forge naturally through conver
 
 **Positioning:** Soul Forge uses a DISC-inspired behavioral style classification to match AI interaction preferences. This is NOT a psychological personality measurement — it identifies what kind of interaction style the user prefers, not who the user is.
 
-Present questions one at a time. **Randomize the order of options for each question** (shuffle A/B/C/D). Do not reveal which option maps to which DISC type. Record the randomized display order in config_update.md (see Section F).
+Present questions one at a time. Do not reveal which option maps to which DISC type. Record the randomized display order in config_update.md (see Section F).
+
+**MANDATORY — Option Shuffle:** For EACH question, you MUST randomly shuffle the 4 options before presenting them. Do NOT present options in their original table order (A/B/C/D = D/I/S/C). Generate a random permutation for each question independently. For example, if the original order is A(D), B(I), C(S), D(C), you might display them as C, A, D, B. The option_order field in config_update.md records your actual display order per question. **If you present all 8 questions with the same option order (e.g., ABCD for every question), this is a BUG.**
 
 The user can answer by letter (A/B/C/D), number (1/2/3/4), or by describing their choice. Accept flexible input.
 
@@ -226,7 +234,7 @@ After all 8 questions:
 
 ### MANDATORY Scoring Procedure
 
-After the user answers all 8 questions, you MUST follow this exact procedure. **Show your work explicitly — do NOT calculate in your head.**
+After the user answers all 8 questions, you MUST follow this exact procedure internally. **Do the work step by step in your reasoning, but do NOT show the full calculation to the user.** Only show the user a brief result summary (see step 10).
 
 1. **List each answer**: For each question Q1-Q8, write down which option (A/B/C/D) the user chose
 2. **Look up both axes**: For each question, find the user's chosen option and read BOTH the Primary and Secondary columns from the table in Section B
@@ -269,6 +277,13 @@ After the user answers all 8 questions, you MUST follow this exact procedure. **
    - EN: "Note: Your answers showed a very strong single-type preference. If you'd like more nuanced results, you can run `/soul-forge recalibrate` later and consider each scenario individually."
    - ZH: "注意：你的回答显示非常强烈的单一类型偏好。如果想获得更细致的结果，可以稍后运行 `/soul-forge recalibrate`。"
    - Do NOT block calibration — the user's choice is still valid.
+11. **Show result summary to user**: After completing steps 1-10 internally, present ONLY a brief summary to the user:
+   - Primary type + score
+   - Secondary type + score
+   - Confidence level
+   - Then proceed to Section D (confirmation prompt)
+   - Example: "根据你的回答，你的风格偏好是 **D型（顾问）**（4.5分），副类型 **C（评论家）**（4.5分），置信度：高。"
+   - Do NOT show the step-by-step calculation, per-question breakdown, or intermediate counts to the user.
 
 **DO NOT estimate or infer DISC types from answer content.** Only use the mapping table.
 

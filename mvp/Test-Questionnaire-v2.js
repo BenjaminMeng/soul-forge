@@ -398,8 +398,8 @@ check('T-QV2-T3', 'Fallback for all non-primary types scoring 0',
 // ============================================================
 console.log('\n--- T-QV2-W: Scoring Guardrails ---');
 
-check('T-QV2-W1', 'Scoring procedure requires showing work explicitly',
-  sectionCContent.includes('Show your work explicitly'));
+check('T-QV2-W1', 'Scoring procedure done internally (not shown to user)',
+  sectionCContent.includes('do NOT show the full calculation to the user'));
 
 check('T-QV2-W2', 'Step 3 requires writing out each question contribution',
   sectionCContent.includes('Write out each question'));
@@ -603,6 +603,95 @@ check('T-QV2-HI1', 'handler.js does NOT inject validation_pending (removed)',
 
 check('T-QV2-HI2', 'handler.js injects scores_invalid warning in context',
   handlerSource.includes('_scores_invalid') && handlerSource.includes('Scoring Error Detected'));
+
+// ============================================================
+// T-QV2-SH: Option shuffle enforcement
+// ============================================================
+console.log('\n--- T-QV2-SH: Option Shuffle ---');
+
+check('T-QV2-SH1', 'SKILL.md has MANDATORY shuffle instruction',
+  skillContent.includes('MANDATORY — Option Shuffle'));
+
+check('T-QV2-SH2', 'SKILL.md warns same-order is a BUG',
+  skillContent.includes('this is a BUG'));
+
+// handler.js shuffle detection
+{
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-sh-'));
+  const sfDir = path.join(tmpDir, '.soul_forge');
+  fs.mkdirSync(sfDir, { recursive: true });
+  fs.writeFileSync(path.join(sfDir, 'config.json'), '{}');
+
+  // All same order — should flag
+  const noShuffle = `# Config Update Request
+
+## DISC
+- **primary**: D
+- **secondary**: I
+- **confidence**: high
+- **scores**: D=8.0 I=1.5 S=1.5 C=1.0
+
+## Questionnaire
+- **q_version**: 2
+- **answers_hash**: testSH01
+- **option_order**: ABCD,ABCD,ABCD,ABCD,ABCD,ABCD,ABCD,ABCD
+
+## Status
+calibrated`;
+
+  fs.writeFileSync(path.join(sfDir, 'config_update.md'), noShuffle);
+  const r1 = processConfigUpdate(tmpDir, { status: 'fresh', version: 2 });
+  check('T-QV2-SH3', 'All-same option_order → _options_not_shuffled = true',
+    r1.disc._options_not_shuffled === true);
+
+  // Different orders — should NOT flag
+  const shuffled = `# Config Update Request
+
+## DISC
+- **primary**: I
+- **secondary**: S
+- **confidence**: high
+- **scores**: D=1.5 I=8.0 S=1.5 C=1.0
+
+## Questionnaire
+- **q_version**: 2
+- **answers_hash**: testSH02
+- **option_order**: BCDA,DCAB,ABDC,CABD,BDCA,ABCD,DCBA,BACD
+
+## Status
+calibrated`;
+
+  fs.writeFileSync(path.join(sfDir, 'config_update.md'), shuffled);
+  fs.writeFileSync(path.join(sfDir, 'config.json'), '{}');
+  const r2 = processConfigUpdate(tmpDir, { status: 'fresh', version: 2 });
+  check('T-QV2-SH4', 'Mixed option_order → no _options_not_shuffled flag',
+    !r2.disc._options_not_shuffled);
+
+  fs.rmSync(tmpDir, { recursive: true });
+}
+
+// ============================================================
+// T-QV2-UX: User-facing communication rules
+// ============================================================
+console.log('\n--- T-QV2-UX: UX Rules ---');
+
+check('T-QV2-UX1', 'SKILL.md has no-internal-thinking rule',
+  skillContent.includes('No internal thinking exposed'));
+
+check('T-QV2-UX2', 'SKILL.md has no-calculation-dumps rule',
+  skillContent.includes('No calculation dumps'));
+
+check('T-QV2-UX3', 'SKILL.md has backtick-filenames rule',
+  skillContent.includes('Backtick all filenames'));
+
+check('T-QV2-UX4', 'SKILL.md scoring says do internally not show to user',
+  skillContent.includes('do NOT show the full calculation to the user'));
+
+check('T-QV2-UX5', 'SKILL.md has Step 11 result summary instruction',
+  skillContent.includes('Show result summary to user'));
+
+check('T-QV2-UX6', 'SKILL.md has official website placeholder',
+  skillContent.includes('soulforge.example.com'));
 
 // ============================================================
 // Summary
