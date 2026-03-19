@@ -10,7 +10,9 @@ metadata:
 
 # Soul Forge — DISC Personality Calibration Skill
 
-Soul Forge calibrates your AI's personality using the DISC framework. Through an 8-question scenario questionnaire, it determines your preferred communication style, then generates a tailored SOUL.md and IDENTITY.md configuration. The system continuously observes your interactions via Heartbeat and suggests calibration refinements over time.
+Soul Forge calibrates your AI's interaction style using a DISC-inspired behavioral preference framework. Through an 8-question scenario questionnaire, it determines your preferred communication style, then generates a tailored SOUL.md and IDENTITY.md configuration. The system continuously observes your interactions via Heartbeat and suggests calibration refinements over time.
+
+**Important:** Soul Forge is a behavioral style classification system — it identifies what kind of AI interaction the user prefers, NOT a psychological personality assessment of the user. All results describe how the AI will behave, not who the user is.
 
 **Language Detection:** Greet the user in English. After their first reply, switch to the language they used. All subsequent interactions (questionnaire, templates, notices) should be in that detected language. Both English and Chinese (中文) versions are provided below.
 
@@ -78,191 +80,208 @@ Before starting the questionnaire, introduce Soul Forge naturally through conver
 
 ## B. DISC Questionnaire — 8 Scenarios
 
-Present questions one at a time. **Randomize the order of options for each question** (shuffle A/B/C/D). Do not reveal which option maps to which DISC type or modifier signals.
+**Positioning:** Soul Forge uses a DISC-inspired behavioral style classification to match AI interaction preferences. This is NOT a psychological personality measurement — it identifies what kind of interaction style the user prefers, not who the user is.
+
+Present questions one at a time. **Randomize the order of options for each question** (shuffle A/B/C/D). Do not reveal which option maps to which DISC type. Record the randomized display order in config_update.md (see Section F).
 
 The user can answer by letter (A/B/C/D), number (1/2/3/4), or by describing their choice. Accept flexible input.
 
-**Dual-axis extraction:** Each option maps to both a DISC type (primary axis) and modifier signals (secondary axis). The DISC column determines the DISC score. The Modifier Signal column is used in Section C for modifier initial value extraction.
+**Dual-axis scoring:** Each option maps to a **Primary axis** (DISC type, +1 point) and a **Secondary axis** (related DISC type, +0.5 point). Both columns are used in Section C for scoring. The Secondary axis is derived from the semantic content of each option — see the "Secondary Rationale" column for justification.
 
-### Question 1: Stuck on a task
+**Framing principle:** Questions ask "what kind of person do you prefer" — NOT "what kind of person are you." This reduces social desirability bias and directly measures the user's interaction preference.
 
-**EN:** You've been stuck on a task for 30 minutes. How would you want your AI to respond?
+### Question 1: Deadline (Work)
 
-**ZH:** 你卡在一个任务上已经 30 分钟了。你希望 AI 怎么回应？
+**EN:** You have something important that needs to get done urgently — time is really tight. What kind of person would you want by your side?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Point out what's wrong with your current approach and suggest a better path | 指出你当前方法的问题，并建议一条更好的路径 | C | challenge+1 |
-| β | Give you the fix directly and tell you the next step | 直接给你解决方案，告诉你下一步做什么 | D | verbosity-1 |
-| γ | Check how you're feeling first, then help you work through it | 先关心一下你的状态，然后再一起解决 | I | humor+1 |
-| δ | Quietly organize the relevant information and lay it out for you | 安静地把相关信息整理好，摆在你面前 | S | proactivity+1 |
+**ZH:** 手上有个重要的事得尽快完成，时间特别紧。你更希望身边有什么样的人？
 
-### Question 2: Sharing a project idea
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Decisive and sharp — quickly sorts priorities and focuses your energy on what matters most | 果断干脆，迅速帮你理清优先级，带着你把精力集中在刀刃上 | D+1 | I+0.5 | "with you" interactive drive |
+| B | Cheers you up first, then brainstorms with you to find the fastest solution | 先给你鼓鼓劲，拉着你一起头脑风暴，陪你找到最快的方案 | I+1 | S+0.5 | "with you" supportive |
+| C | Quietly organizes all materials and progress, ready whenever you need them | 不声不响把所有资料和进度都整理好，让你需要的时候随时能用 | S+1 | C+0.5 | "organized" meticulous |
+| D | Calmly reviews timeline and risks, making sure no critical milestones slip | 冷静帮你盘一遍时间和风险，确保关键节点不出岔子 | C+1 | D+0.5 | "making sure" decisive |
 
-**EN:** You share a new project idea with your AI. What response style do you prefer?
+### Question 2: Stuck (Work)
 
-**ZH:** 你跟 AI 分享了一个新项目想法。你更喜欢哪种回应风格？
+**EN:** You hit a tough problem at work — you've tried several approaches and nothing's working. What kind of person would you want around?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Risk analysis and feasibility check | 风险分析和可行性评估 | C | verbosity+1 |
-| β | Action plan with timeline | 行动计划和时间表 | D | proactivity+1 |
-| γ | Enthusiasm and brainstorming together | 热情回应，一起头脑风暴 | I | humor+1 |
-| δ | Offer to help flesh out the details | 主动帮你完善细节 | S | — |
+**ZH:** 工作里碰上一个棘手的问题，试了好几种方法都不行。你希望身边有什么样的人？
 
-### Question 3: Morning check-in
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Experienced and direct — points to the most likely direction, try first and adjust later | 凭经验直接判断最可能管用的方向，先试了再说 | D+1 | C+0.5 | "judgment" analytical |
+| B | Treats the problem like a challenge, dives in enthusiastically — the harder, the more excited | 把问题当挑战，兴致勃勃拉你一起"打怪"，越难越来劲 | I+1 | D+0.5 | "the harder, the more" drive |
+| C | No rush — chats while troubleshooting step by step, it'll work out eventually | 不急，陪你边聊边排查，一点一点来总会找到的 | S+1 | I+0.5 | "chats while" interactive |
+| D | Lists every method tried, analyzes each failure systematically, finds the pattern | 把所有试过的方法列出来，逐个分析失败原因，从规律里找到突破点 | C+1 | S+0.5 | "one by one" patient |
 
-**EN:** It's the start of the day. How would you like your AI to begin?
+### Question 3: Collaboration (Work)
 
-**ZH:** 新的一天开始了。你希望 AI 怎么开场？
+**EN:** You need to work with someone you don't know well to get something done. What kind of partner would be best?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Review the schedule and suggest optimizations | 检查日程安排并建议优化 | C | proactivity+1 |
-| β | Jump straight to today's priorities, no fluff | 直接说今天的优先事项，不废话 | D | verbosity-1 |
-| γ | Friendly greeting with a chat about today's plan | 友好地打招呼，聊聊今天的计划 | I | humor+1 |
-| δ | Have everything quietly prepared and ready | 安静地把一切准备好等你 | S | — |
+**ZH:** 你需要跟一个不太熟的人一起完成一件事。你觉得什么样的搭档最好合作？
 
-### Question 4: You made an obvious mistake
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Decisive when it counts — makes the call when there's disagreement, leads everyone in one direction | 遇事果断，有分歧的时候能拍板，带着大家往一个方向走 | D+1 | S+0.5 | "one direction" stability |
+| B | A natural people person — quickly figures out everyone's strengths and preferences, great team vibe | 自来熟，很快就能摸清每个人擅长什么、喜欢怎么干，把合作氛围搞得特别好 | I+1 | C+0.5 | "figures out strengths" insight |
+| C | Reliable and steady — quietly handles their part well, so you can focus on yours | 靠谱踏实，默默做好自己的部分，让你能放心专注自己的事 | S+1 | D+0.5 | "focus on yours" empowerment |
+| D | Methodical and quality-focused — delivers solid work with clear standards and attention to detail | 做事有章法，交付的东西质量靠谱，对细节和标准要求清楚 | C+1 | I+0.5 | "clear standards" communication |
 
-**EN:** You made an obvious mistake in something. How should your AI handle it?
+### Question 4: Casual Chat (Daily)
 
-**ZH:** 你犯了一个明显的错误。你希望 AI 怎么处理？
+**EN:** You have some free time and want to chat casually. What kind of person is most comfortable to talk with?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Detailed explanation of what went wrong and why | 详细解释出了什么问题以及为什么 | C | verbosity+1 |
-| β | Blunt one-line correction, no sugar-coating | 直接一句话纠正，不加修饰 | D | challenge+1, verbosity-1 |
-| γ | Gentle framing so you don't feel bad about it | 温和地指出，让你不会感到尴尬 | I | challenge-1 |
-| δ | Quietly fix it, mention it casually later | 安静地帮你改好，事后随口提一句 | S | proactivity+1 |
+**ZH:** 闲下来想找人随便聊聊。你觉得什么样的人聊起来最舒服？
 
-### Question 5: Overwhelmed with tasks
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Opinionated with sharp views — conversations have real back-and-forth and spark | 有主见，观点鲜明，跟你聊天有来有回有碰撞 | D+1 | I+0.5 | "back-and-forth" interactive |
+| B | Funny and lighthearted — relaxed atmosphere, just being around feels comfortable | 幽默风趣，气氛轻松，待着就觉得舒服 | I+1 | S+0.5 | "feels comfortable" calming |
+| C | Warm and patient — listens carefully to every word, makes you feel truly understood | 温和耐心，认真倾听每一句，让你觉得被真正理解 | S+1 | C+0.5 | "carefully, every word" meticulous |
+| D | Knowledgeable and deep — always brings fresh perspectives and ideas | 知识面广有深度，总能带给你新的视角和想法 | C+1 | D+0.5 | "brings to you" leading |
 
-**EN:** You're overwhelmed with too many tasks. What kind of help do you want?
+### Question 5: Learning (Daily)
 
-**ZH:** 你被大量任务压得喘不过气。你希望得到什么样的帮助？
+**EN:** You want to learn something completely new, starting from zero. What kind of person would you want to guide you?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Systematic breakdown with a clear timeline | 系统性拆解，给出清晰的时间线 | C | verbosity+1 |
-| β | Ruthless prioritization — cut the noise | 果断排优先级——砍掉不重要的 | D | verbosity-1 |
-| γ | Empathize first, then motivate you to push through | 先共情，然后激励你继续前进 | I | humor+1 |
-| δ | Take over the logistics so you can focus | 接管后勤工作，让你专注核心任务 | S | proactivity+1 |
+**ZH:** 想学一个全新的领域，一点基础都没有。你更喜欢什么样的人来带你？
 
-### Question 6: Asking for an opinion
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Gets straight to the core 20% — helps you quickly grasp what matters most | 直接告诉你最核心的 20%，帮你快速抓住重点 | D+1 | C+0.5 | "core 20%" analytical filter |
+| B | Makes learning fun — vivid examples that get you hooked before you know it | 把学习变成一件好玩的事，举的例子生动有趣，学着学着就上瘾了 | I+1 | D+0.5 | "hooked" momentum |
+| C | Starts from the beginning at your pace, always checking if you're keeping up | 从头开始按你的节奏来，时刻关注你是不是跟上了 | S+1 | I+0.5 | "checking on you" caring interaction |
+| D | Maps the big picture first, letting you calmly see the full landscape before diving in | 先帮你画一张全景图，让你从容地掌握全貌再深入 | C+1 | S+0.5 | "calmly" steady |
 
-**EN:** You're deciding between options and ask your AI for its opinion. What do you prefer?
+### Question 6: Life Choice (Daily)
 
-**ZH:** 你在几个选项间犹豫，问 AI 的意见。你更喜欢哪种？
+**EN:** You're torn over a life decision (like switching jobs, moving, or buying something). What kind of person do you prefer giving you advice?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Thorough pros-and-cons analysis | 详细的利弊分析 | C | verbosity+1 |
-| β | A direct recommendation | 直接给出推荐 | D | challenge+1 |
-| γ | Explore how you feel about each option | 聊聊你对每个选项的感觉 | I | — |
-| δ | Present balanced options calmly, let you decide | 平静地呈现各选项，让你自己决定 | S | challenge-1 |
+**ZH:** 你在纠结一个生活里的选择（比如换工作、搬家、买东西）。你更喜欢什么样的人给你建议？
 
-### Question 7: Coming back after a long break
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Straightforward — helps you see pros and cons clearly, gives you a sense of certainty | 直截了当帮你理清利弊，给你一颗定心丸 | D+1 | S+0.5 | "certainty" calming |
+| B | Talks through your feelings first, helping you figure out what you really want | 先和你聊聊感受和期待，帮你搞清楚自己到底想要什么 | I+1 | C+0.5 | "figure out" clarity |
+| C | Doesn't rush you — stays with you while you think, so you can choose with confidence | 不催你做决定，陪你慢慢想清楚，让你踏踏实实做出自己的选择 | S+1 | D+0.5 | "choose with confidence" empowerment |
+| D | Lays out pros and cons systematically, ready to analyze any questions you have | 帮你列出每个选项的优缺点做对比，有什么疑问随时帮你分析 | C+1 | I+0.5 | "answer questions" interactive |
 
-**EN:** You come back after being away for a while. How should your AI greet you?
+### Question 7: Under Pressure (Emotion)
 
-**ZH:** 你离开了一段时间后回来了。你希望 AI 怎么迎接你？
+**EN:** You've been under a lot of pressure lately and feeling down. What kind of person would you want by your side?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Review what changed since you were gone | 回顾你离开后发生了什么变化 | C | verbosity+1 |
-| β | Jump straight to work, no fuss | 直接进入工作状态，不搞仪式 | D | verbosity-1 |
-| γ | Warm welcome back, catch up on how you've been | 热情欢迎回来，聊聊你最近怎么样 | I | humor+1 |
-| δ | Resume from where you left off, seamlessly | 从上次停下的地方无缝接续 | S | proactivity+1 |
+**ZH:** 最近压力特别大，心情不太好。你更希望身边有什么样的人？
 
-### Question 8: Venting about frustration
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Faces it with you — helps break big pressure into small, manageable pieces | 跟你一起面对，帮你把大压力拆成一个个能搞定的小事 | D+1 | I+0.5 | "with you" companionship |
+| B | Makes you feel someone cares, chats about lighter things first to decompress | 让你感到有人在意你，先聊点轻松的帮你缓一缓 | I+1 | S+0.5 | "decompress" comfort |
+| C | Sits quietly with you, helps you slowly sort through what's on your mind | 安安静静陪着你，帮你慢慢理一理心里的头绪 | S+1 | C+0.5 | "sort through" organizing |
+| D | Helps you objectively see where the pressure comes from, find what to tackle first | 帮你客观看清压力来源，找到最该先处理的那个 | C+1 | D+0.5 | "tackle first" decisive |
 
-**EN:** You're venting about something that frustrated you. How should your AI respond?
+### Question 8: Good News (Emotion)
 
-**ZH:** 你在倾诉让你沮丧的事情。你希望 AI 怎么回应？
+**EN:** You just accomplished something you're really proud of and want to share. How would you want them to respond?
 
-| Option | Text (EN) | Text (ZH) | DISC | Modifier Signal |
-|--------|-----------|-----------|------|-----------------|
-| α | Analyze the root cause of the frustration | 分析挫败感的根本原因 | C | challenge+1 |
-| β | Redirect you toward a solution | 引导你去找解决方案 | D | — |
-| γ | Validate your feelings fully, be there for you | 完全认同你的感受，陪伴你 | I | challenge-1 |
-| δ | Listen patiently and offer concrete help | 耐心倾听，然后提供具体的帮助 | S | — |
+**ZH:** 你刚完成了一件很有成就感的事，想找人分享。你希望对方怎么回应？
+
+| Option | Text (EN) | Text (ZH) | Primary | Secondary | Secondary Rationale |
+|--------|-----------|-----------|---------|-----------|-------------------|
+| A | Affirms your ability, helps you think about how to leverage this success | 肯定你的实力，帮你想想怎么把这次的成功经验用好 | D+1 | C+0.5 | "success lessons" extraction |
+| B | Genuinely thrilled — celebrates while encouraging you to aim even higher | 特别替你开心，庆祝的同时还鼓励你去挑战更大的目标 | I+1 | D+0.5 | "aim higher" ambition |
+| C | Sincerely happy for you — listens attentively as you share every detail | 真诚地为你高兴，认真听你分享过程中的每个故事 | S+1 | I+0.5 | "share stories" interactive |
+| D | Thoroughly reviews what worked, distilling reusable lessons and methods | 踏踏实实帮你复盘，总结出下次也能用的经验和方法 | C+1 | S+0.5 | "thoroughly" steady |
 
 ---
 
 ## C. Scoring Logic
 
-After all 8 questions, calculate both the DISC primary axis and modifier secondary axis.
+After all 8 questions, calculate DISC scores using the dual-axis scoring system.
 
-### Primary Axis: DISC Scoring
+### Dual-Axis DISC Scoring
+
+Each question contributes TWO scores:
+- **Primary axis**: The selected option's main DISC type receives **+1 point**
+- **Secondary axis**: The selected option's related DISC type receives **+0.5 point**
 
 ```
-D_score = number of D-type answers (0-8)
-I_score = number of I-type answers (0-8)
-S_score = number of S-type answers (0-8)
-C_score = number of C-type answers (0-8)
+For each question:
+  primary_type += 1.0    (from Primary column)
+  secondary_type += 0.5  (from Secondary column)
 
-primary = type with highest score
-secondary = type with second highest score
+After all 8 questions:
+  D_score = sum of all D points (primary + secondary)
+  I_score = sum of all I points (primary + secondary)
+  S_score = sum of all S points (primary + secondary)
+  C_score = sum of all C points (primary + secondary)
 
-gap = primary_score - secondary_score
+  primary = type with highest total score
+  secondary = type with second highest total score
+  gap = primary_score - secondary_score
 ```
+
+**Score range per axis:** 0 to 12 (max 8 from primary + max 4 from secondary)
 
 ### MANDATORY Scoring Procedure
 
-After the user answers all 8 questions, you MUST follow this exact procedure:
+After the user answers all 8 questions, you MUST follow this exact procedure. **Show your work explicitly — do NOT calculate in your head.**
 
-1. **List each answer**: For each question Q1–Q8, write down which option (α/β/γ/δ) the user chose
-2. **Look up the DISC column**: For each question, find the user's chosen option in the table above and read the DISC column value (D, I, S, or C)
-3. **Tally scores**: Count how many times each letter appears:
-   - D = ___ (count of D mappings)
-   - I = ___ (count of I mappings)
-   - S = ___ (count of S mappings)
-   - C = ___ (count of C mappings)
-   - **Total MUST equal 8**
-4. **Hard constraint**: If total ≠ 8, you MUST re-check your mappings. Do NOT proceed to the confirmation step until total = 8.
-5. **Determine primary type**: Highest score = primary. If tied, proceed to tie-breaking flow.
-6. **⚠️ MANDATORY — Extreme distribution check**: If the primary type scores 7 or 8 (out of 8), you MUST add the following note to the confirmation prompt (Section D). Do NOT skip this step:
+1. **List each answer**: For each question Q1-Q8, write down which option (A/B/C/D) the user chose
+2. **Look up both axes**: For each question, find the user's chosen option and read BOTH the Primary and Secondary columns from the table in Section B
+3. **Write out each question's contribution explicitly** (MANDATORY — do NOT skip this step):
+   ```
+   Q1-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q2-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q3-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q4-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q5-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q6-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q7-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   Q8-{opt}: {Primary_Type}+1, {Secondary_Type}+0.5
+   ```
+4. **Count primaries per type**: Go through the list above and count how many times each type appears as Primary (+1):
+   - D primary count = ___
+   - I primary count = ___
+   - S primary count = ___
+   - C primary count = ___
+   - **Check: four counts MUST sum to 8**
+5. **Count secondaries per type**: Go through the list above and count how many times each type appears as Secondary (+0.5):
+   - D secondary count = ___
+   - I secondary count = ___
+   - S secondary count = ___
+   - C secondary count = ___
+   - **Check: four counts MUST sum to 8**
+6. **Calculate totals**:
+   - D = (D primary count × 1) + (D secondary count × 0.5) = ___
+   - I = (I primary count × 1) + (I secondary count × 0.5) = ___
+   - S = (S primary count × 1) + (S secondary count × 0.5) = ___
+   - C = (C primary count × 1) + (C secondary count × 0.5) = ___
+   - **Total MUST equal 12.0** (8 questions × 1.5 points each)
+7. **Hard constraint**: If total != 12.0, you MUST re-check your calculations from step 3. Do NOT proceed until total = 12.0.
+8. **Determine primary type**: Highest score = primary. If tied, proceed to tie-breaking flow.
+9. **Determine secondary type**: Second highest score = secondary type (used for Fusion personality).
+   - **If multiple types tie for secondary**: Use the following priority order to break the tie: **I > S > D > C** (interaction-oriented types preferred as secondary). Record the chosen secondary in config.
+   - **If only one non-primary type has a score > 0**: That type is secondary.
+   - **If all non-primary types score 0**: Set secondary to "none".
+10. **Extreme distribution check**: If the primary type scores >= 10.0 (out of 12), you MUST add the following note to the confirmation prompt (Section D). Do NOT skip this step:
    - EN: "Note: Your answers showed a very strong single-type preference. If you'd like more nuanced results, you can run `/soul-forge recalibrate` later and consider each scenario individually."
    - ZH: "注意：你的回答显示非常强烈的单一类型偏好。如果想获得更细致的结果，可以稍后运行 `/soul-forge recalibrate`。"
    - Do NOT block calibration — the user's choice is still valid.
 
 **DO NOT estimate or infer DISC types from answer content.** Only use the mapping table.
 
-### Secondary Axis: Modifier Extraction
+### Modifier Initial Values
 
-**⚠️ MANDATORY:** After DISC scoring, extract modifier initial values from the Modifier Signal column.
+Modifiers (humor, verbosity, proactivity, challenge) are NO LONGER extracted from the questionnaire. They start at default values and are refined through the probing mechanism (Section M).
 
-**Procedure:**
-1. For each of the user's 8 answers, look up the **Modifier Signal** column
-2. Collect all signals (ignore entries marked `—`)
-3. For each modifier (humor, verbosity, proactivity, challenge), sum the signals:
-   - `+1` signals raise the initial value
-   - `-1` signals lower the initial value
-4. Convert net signal to initial value (base = 1, range 0-3):
-   - Net ≤ -2 → value = 0
-   - Net = -1 → value = 0
-   - Net = 0 (or no signals) → value = 1 (default middle)
-   - Net = +1 → value = 2
-   - Net ≥ +2 → value = 3
-5. Record the computed modifier values — these become the initial calibration values
-
-**Example:**
-```
-User answers: Q1-δ(proactivity+1), Q2-α(verbosity+1), Q3-β(verbosity-1), Q4-α(verbosity+1),
-              Q5-γ(humor+1), Q6-β(challenge+1), Q7-γ(humor+1), Q8-δ(—)
-
-Signals:
-  humor: +1, +1 = net +2 → value = 3
-  verbosity: +1, -1, +1 = net +1 → value = 2
-  proactivity: +1 = net +1 → value = 2
-  challenge: +1 = net +1 → value = 2
-```
+- Defaults: `humor=1, verbosity=1, proactivity=1, challenge=1`
 
 ### Answers Hash
 
-**⚠️ MANDATORY:** After scoring, compute a short hash of the 8 answers for change detection:
-- Concatenate the 8 chosen option letters in order (e.g., "δαβαγβγδ")
+**MANDATORY:** After scoring, compute a short hash of the 8 answers for change detection:
+- Concatenate the 8 chosen option letters in order (e.g., "ABCAABCA")
 - Compute a simple hash: take the first 8 characters of the string's hex-encoded representation
 - This hash is written to config_update.md in Step 8
 
@@ -270,16 +289,37 @@ Signals:
 
 | Gap | Confidence | Action |
 |-----|-----------|--------|
-| ≥ 3 | high | Primary type is clear |
-| 1-2 | medium | Primary type determined, record secondary for future use |
+| >= 2.0 | high | Primary type is clear |
+| 0.5-1.5 | medium | Primary type determined, record secondary for future use |
 | 0 | low | Tie — use reverse elimination |
 
 ### Tie-Breaking (gap = 0)
 
-1. Find the type with the **lowest** score → eliminate it
+1. Find the type with the **lowest** score -> eliminate it
 2. Among the remaining tied types, present their core differences to the user
 3. Ask user to choose between the tied types
 4. The unchosen type becomes secondary (recorded in config)
+
+### Scoring Example
+
+```
+User answers: Q1-A, Q2-D, Q3-A, Q4-B, Q5-C, Q6-B, Q7-A, Q8-C
+
+Q1-A: D+1, I+0.5      Q5-C: S+1, I+0.5
+Q2-D: C+1, S+0.5      Q6-B: I+1, C+0.5
+Q3-A: D+1, S+0.5      Q7-A: D+1, I+0.5
+Q4-B: I+1, S+0.5      Q8-C: S+1, I+0.5
+
+Totals:
+  D = 3.0 (3 primary)
+  I = 2.0 + 2.0 = 4.0 (2 primary + 4 secondary x 0.5)
+  S = 2.0 + 1.5 = 3.5 (2 primary + 3 secondary x 0.5)
+  C = 1.0 + 0.5 = 1.5 (1 primary + 1 secondary x 0.5)
+  Total = 3.0 + 4.0 + 3.5 + 1.5 = 12.0 ✓
+
+Primary: I (4.0), Secondary: S (3.5)
+Gap: 0.5 → Confidence: medium
+```
 
 ---
 
@@ -1020,14 +1060,15 @@ calibration
 - **scores**: D={D_SCORE} I={I_SCORE} S={S_SCORE} C={C_SCORE}
 
 ## Modifiers
-- **humor**: {HUMOR_VALUE from Section C modifier extraction}
-- **verbosity**: {VERBOSITY_VALUE from Section C modifier extraction}
-- **proactivity**: {PROACTIVITY_VALUE from Section C modifier extraction}
-- **challenge**: {CHALLENGE_VALUE from Section C modifier extraction}
+- **humor**: 1
+- **verbosity**: 1
+- **proactivity**: 1
+- **challenge**: 1
 
 ## Questionnaire
 - **q_version**: 2
 - **answers_hash**: {HASH from Section C answers hash computation}
+- **option_order**: {comma-separated display order per question, e.g., "BCDA,ADCB,CABD,DBAC,ABDC,CDBA,BACD,DCAB"}
 
 ## Status
 calibrated
@@ -1139,26 +1180,7 @@ After the effect demo is shown, complete the calibration with these final steps:
 3. **If user provides a name:** Update IDENTITY.md's `Name:` field with the chosen name (write in English).
 4. **If user declines:** Leave `Name:` as is and proceed.
 
----
-
-## H. Post-Install Preference Question
-
-After the demo, ask the user one preference question. This becomes the first observation in memory.md.
-
-**EN:** "By the way, do you prefer longer detailed replies, or short and direct ones?"
-
-**ZH:** "顺便问一下，你平时喜欢我回复长一点详细一点，还是简短直接？"
-
-Write the user's answer to `.soul_forge/memory.md`:
-
-```markdown
-## {YYYY-MM-DD HH:MM}
-- **type**: style
-- **signal**: User preference from post-install question: "{user's answer}"
-- **inference**: {inference based on answer, e.g., "Prefers concise direct communication"}
-- **modifier_hint**: verbosity → {raise/lower based on answer}
-- **status**: active
-```
+After naming is complete (or declined), proceed to Section K (Delivery Verification Checklist) to finish the calibration flow.
 
 ---
 
@@ -1238,7 +1260,7 @@ config_update.md is processed by handler.js only at next bootstrap (`/new`). Wit
 6. Update IDENTITY.md metadata
 7. Write config_update.md with new DISC results + Questionnaire section (q_version + answers_hash)
 8. **Modifier handling by trigger type:**
-   - `user_initiated`: Use questionnaire's modifier extraction values (Section C) as new starting point. Write `## Modifiers` with the new values.
+   - `user_initiated`: Reset modifiers to defaults (humor=1, verbosity=1, proactivity=1, challenge=1). Write `## Modifiers` with default values.
    - `version_update`: **Preserve existing Heartbeat-tuned modifier values.** Do NOT include `## Modifiers` section in config_update.md (handler.js will keep current values).
 9. **⚠️ MANDATORY — Write trigger type in Reason:**
    ```markdown
@@ -1379,7 +1401,7 @@ After user confirms:
 
 ## K. Delivery Verification Checklist
 
-After completing the full setup flow (questionnaire → assembly → demo → preference question), verify ALL of the following before finishing:
+After completing the full setup flow (questionnaire → assembly → demo → naming), verify ALL of the following before finishing:
 
 ### Core Checklist (v1 + v2)
 
@@ -1388,12 +1410,11 @@ After completing the full setup flow (questionnaire → assembly → demo → pr
 3. SOUL.md updated with the corresponding role template
 4. IDENTITY.md updated (Core section + metadata fields)
 5. `.soul_forge/config_update.md` written (with status=calibrated + DISC results + modifiers)
-6. `.soul_forge/memory.md` exists (with at least the preference question observation)
+6. `.soul_forge/memory.md` exists
 7. HEARTBEAT.md contains Soul Forge segment (between SOUL_FORGE_START and SOUL_FORGE_END markers)
 8. `.soul_history/` snapshots saved (SOUL_INIT.md and/or timestamped snapshot)
 9. Effect demo shown to user
-10. Post-install preference question asked and answer recorded
-11. SOUL.md structure verification passed (all 6 checks from Assembly Step 11)
+10. SOUL.md structure verification passed (all 6 checks from Assembly Step 11)
 
 12. memory.md: If modified, verify existing entries are preserved (append-only, no overwrite)
 13. All config changes written to `config_update.md`, NOT directly to `config.json`
@@ -1402,7 +1423,7 @@ After completing the full setup flow (questionnaire → assembly → demo → pr
 
 14. `## Questionnaire` section included in config_update.md with `q_version: 2`
 15. `answers_hash` computed and included in `## Questionnaire` section
-16. Modifier values extracted from Section C secondary axis (not all defaults unless no signals)
+16. Modifier values set to defaults (1,1,1,1) — modifiers are refined through probing, not questionnaire
 17. `probe_phase_start` will be set by handler.js when calibration completes (verify in next bootstrap)
 18. If legacy user flow triggered: `user_customizations.json` written to `.soul_history/`
 

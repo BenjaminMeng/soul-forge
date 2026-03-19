@@ -246,11 +246,11 @@ function parseConfigUpdate(content) {
           const key = fieldMatch[1].toLowerCase();
           let value = fieldMatch[2].trim();
           if (key === 'scores') {
-            // Parse "D=1 I=2 S=5 C=4"
+            // Parse "D=1.5 I=2 S=5.5 C=4" (dual-axis: floats)
             const scores = {};
             for (const part of value.split(/\s+/)) {
               const [k, v] = part.split('=');
-              if (k && v) scores[k] = parseInt(v, 10);
+              if (k && v) scores[k] = parseFloat(v);
             }
             result.disc.scores = scores;
           } else {
@@ -285,9 +285,12 @@ function parseConfigUpdate(content) {
             result.questionnaire.q_version = parseInt(qVal, 10);
           } else if (qKey === 'answers_hash') {
             result.questionnaire.answers_hash = qVal;
+          } else if (qKey === 'option_order') {
+            result.questionnaire.option_order = qVal;
           }
         }
         break;
+      // 'validation' section removed — confidence is derived purely from score distribution
     }
   }
 
@@ -342,6 +345,48 @@ function processConfigUpdate(workspaceDir, config) {
       config.disc = Object.assign(config.disc || {}, update.disc);
     }
 
+    // ── Hard guardrail: DISC score validation ──
+    // If Agent wrote DISC scores, validate them (Issue 3: scoring errors)
+    if (config.disc && config.disc.scores) {
+      const s = config.disc.scores;
+      const total = (s.D || 0) + (s.I || 0) + (s.S || 0) + (s.C || 0);
+      if (Math.abs(total - 12.0) > 0.01) {
+        appendToErrorLog(workspaceDir, `DISC score validation FAILED: total=${total} (expected 12.0). Scores: D=${s.D} I=${s.I} S=${s.S} C=${s.C}. Setting _scores_invalid flag.`);
+        config.disc._scores_invalid = true;
+      } else {
+        delete config.disc._scores_invalid;
+      }
+    }
+
+    // ── Hard guardrail: Secondary type derivation (Issue 2: secondary=none on tie) ──
+    // handler.js always computes secondary from scores, overriding Agent's value
+    if (config.disc && config.disc.scores && config.disc.primary) {
+      const s = config.disc.scores;
+      const primary = config.disc.primary;
+      // Priority order for tie-breaking: I > S > D > C
+      const secondaryPriority = ['I', 'S', 'D', 'C'];
+      let bestScore = -1;
+      let bestType = null;
+      for (const t of secondaryPriority) {
+        if (t === primary) continue;
+        const score = s[t] || 0;
+        if (score > bestScore) {
+          bestScore = score;
+          bestType = t;
+        }
+        // If equal score, earlier in priority wins (already ordered)
+      }
+      const agentSecondary = config.disc.secondary;
+      if (bestType && bestScore > 0) {
+        config.disc.secondary = bestType;
+        if (agentSecondary && agentSecondary !== bestType && agentSecondary !== 'none') {
+          appendToErrorLog(workspaceDir, `Secondary override: Agent wrote "${agentSecondary}" but scores derive "${bestType}". Using computed value.`);
+        }
+      } else if (bestScore === 0) {
+        config.disc.secondary = 'none';
+      }
+    }
+
     // Apply probing updates
     if (update.probing) {
       if (update.probing.last_style_probe !== undefined) {
@@ -361,7 +406,14 @@ function processConfigUpdate(workspaceDir, config) {
         if (!config.disc) config.disc = {};
         config.disc.answers_hash = update.questionnaire.answers_hash;
       }
+      if (update.questionnaire.option_order !== undefined) {
+        if (!config.disc) config.disc = {};
+        config.disc.option_order = update.questionnaire.option_order;
+      }
     }
+
+    // Validation section removed — confidence is derived purely from score distribution.
+    // Legacy: if a config_update.md happens to include ## Validation, it will be silently ignored.
 
     // Handle modifier processing based on trigger type (user_initiated vs version_update)
     if (update.reason && update.modifiers) {
@@ -579,6 +631,13 @@ function generateInjection(config, observations, readiness) {
   if (config._q_outdated) {
     lines.push('## Questionnaire Update');
     lines.push('questionnaire_outdated: true — Suggest user run `/soul-forge recalibrate` to update to the latest questionnaire.');
+    lines.push('');
+  }
+
+  // Hard guardrail injections
+  if (config.disc && config.disc._scores_invalid) {
+    lines.push('## Scoring Error Detected');
+    lines.push('**WARNING: DISC scores do not sum to 12.0. The calibration scores are invalid. You MUST re-run the scoring procedure (Section C) or suggest `/soul-forge recalibrate`.**');
     lines.push('');
   }
 
