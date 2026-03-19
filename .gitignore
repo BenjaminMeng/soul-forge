@@ -1,0 +1,21 @@
+# Logs
+install_log.txt
+errors.log
+
+# Backups
+*.bak
+*.prev
+*.tmp
+
+# Runtime state (generated during use)
+config_update.md
+telemetry.json
+soul-forge-context.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
