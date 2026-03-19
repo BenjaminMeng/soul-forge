@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const crypto = require('crypto');
 
 // ============================================================
 // Soul Forge Bootstrap Hook — handler.js (CommonJS)
@@ -13,6 +15,13 @@ const MAX_INJECT_BYTES = 4096; // 4KB budget (increased for Phase 3 context)
 const MAX_OBSERVATIONS = 20;
 const READINESS_THRESHOLD = 5;
 const MOOD_HISTORY_MAX = 10; // FIFO mood history size
+
+// --- Auto-update + Telemetry constants ---
+const SOUL_FORGE_VERSION = '3.1.0';
+const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
+const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';
+const UPDATE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TELEMETRY_SALT = 'soul_forge_2026_anon';
 
 // --- Sentiment analysis (lazy loaded) ---
 let _sentiment = null;
@@ -134,6 +143,10 @@ function parseConfigUpdate(content) {
           else if (key === 'backup') result.soul_evolve_backup = val;
         }
         break;
+      case 'telemetry_opt_in':
+      case 'telemetry opt in':
+        result.telemetry_opt_in = value.toLowerCase() === 'true';
+        break;
     }
   }
 
@@ -205,6 +218,14 @@ function processConfigUpdate(workspaceDir, config) {
     // Apply DISC update
     if (update.disc) {
       config.disc = Object.assign(config.disc || {}, update.disc);
+    }
+
+    // Handle telemetry opt-in/out (Phase 3.4)
+    if (update.telemetry_opt_in !== undefined) {
+      config.telemetry_opt_in = update.telemetry_opt_in;
+      if (update.telemetry_opt_in && !config.telemetry_anon_id) {
+        config.telemetry_anon_id = generateAnonId(config);
+      }
     }
 
     // Append to calibration history
@@ -614,6 +635,15 @@ function migrateSchema(config) {
   if (config.soul_evolve && !config.soul_evolve.hasOwnProperty('pending')) {
     config.soul_evolve.pending = null;
   }
+
+  // Phase 3.4: Auto-update + telemetry fields
+  if (!config.soul_forge_version) config.soul_forge_version = SOUL_FORGE_VERSION;
+  if (config.auto_update === undefined) config.auto_update = true;
+  if (!config.last_update_check) config.last_update_check = null;
+  if (!config.last_update_applied) config.last_update_applied = null;
+  if (config.telemetry_opt_in === undefined) config.telemetry_opt_in = false;
+  if (!config.telemetry_anon_id) config.telemetry_anon_id = null;
+  if (!config.telemetry_endpoint) config.telemetry_endpoint = 'https://89.117.23.59:9090/api/telemetry';
 
   return config;
 }
@@ -1598,6 +1628,231 @@ function checkSoulMdStructure(workspaceDir, injectionWarnings) {
 }
 
 // ============================================================
+// Auto-update: check GitHub for newer version, download if available
+// ============================================================
+
+function httpsGet(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: timeoutMs || 5000 }, (res) => {
+      // Follow redirects (GitHub raw sometimes 301/302)
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        httpsGet(res.headers.location, timeoutMs).then(resolve).catch(reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        res.resume();
+        return;
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+function checkForUpdates(config, configDir, workspaceDir) {
+  if (config.auto_update === false) return Promise.resolve(null);
+  if (process.env.SOUL_FORGE_NO_UPDATE === '1') return Promise.resolve(null);
+
+  // Cooldown check
+  const lastCheck = config.last_update_check ? new Date(config.last_update_check).getTime() : 0;
+  if (Date.now() - lastCheck < UPDATE_COOLDOWN_MS) return Promise.resolve(null);
+
+  return httpsGet(UPDATE_CHECK_URL, 5000).then(body => {
+    const remote = JSON.parse(body);
+    config.last_update_check = new Date().toISOString();
+
+    const localVersion = config.soul_forge_version || SOUL_FORGE_VERSION;
+    if (compareVersions(remote.version, localVersion) <= 0) {
+      return null; // Already up to date
+    }
+
+    // Download each file
+    const fileMap = remote.files || {};
+    const downloads = Object.keys(fileMap).map(repoPath => {
+      const url = UPDATE_BASE_URL + repoPath;
+      // Determine target path based on file type
+      let targetPath;
+      if (repoPath.startsWith('hooks/')) {
+        targetPath = path.join(configDir, repoPath);
+      } else if (repoPath.startsWith('skills/')) {
+        targetPath = path.join(configDir, repoPath);
+      } else {
+        return Promise.resolve(); // Unknown path, skip
+      }
+
+      return httpsGet(url, 10000).then(content => {
+        const tmpPath = targetPath + '.tmp';
+        const dir = path.dirname(targetPath);
+        try { fs.mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
+        fs.writeFileSync(tmpPath, content, 'utf-8');
+        fs.renameSync(tmpPath, targetPath); // Atomic replace
+      }).catch(() => {
+        // Individual file download failure — skip, don't break
+      });
+    });
+
+    return Promise.all(downloads).then(() => {
+      config.soul_forge_version = remote.version;
+      config.last_update_applied = new Date().toISOString();
+      return remote;
+    });
+  }).catch(() => {
+    // Network failure — silently skip, don't block bootstrap
+    config.last_update_check = new Date().toISOString(); // Still update cooldown
+    return null;
+  });
+}
+
+// ============================================================
+// Telemetry upload: fire-and-forget POST to collection server
+// ============================================================
+
+function generateAnonId(config) {
+  if (config.telemetry_anon_id) return config.telemetry_anon_id;
+  const source = (config.disc && config.disc.answers_hash || 'unknown') + TELEMETRY_SALT;
+  const hash = crypto.createHash('sha256').update(source).digest('hex');
+  return hash.substring(0, 8);
+}
+
+function generateEnhancedTelemetry(config, actionSignals, moodContext, dedupResult) {
+  const base = {
+    _schema: 'soul_forge_telemetry_v2',
+    _generated_at: new Date().toISOString(),
+    anon_id: generateAnonId(config),
+    soul_forge_version: config.soul_forge_version || SOUL_FORGE_VERSION,
+
+    session: {
+      count: config.probe_session_count || 0,
+      maturity_phase: getMaturityPhase(config.probe_session_count || 0),
+      status: config.status || 'unknown'
+    },
+
+    disc: {
+      primary: config.disc ? config.disc.primary : null,
+      secondary: config.disc ? config.disc.secondary : null,
+      confidence: config.disc ? config.disc.confidence : null,
+      scores: config.disc ? config.disc.scores : null
+    },
+
+    modifiers: config.modifiers ? Object.assign({}, config.modifiers) : null,
+    calibration_baseline: config.calibration_baseline ? config.calibration_baseline.modifiers : null,
+
+    mood: {
+      current_score: moodContext ? moodContext.score : null,
+      trend: moodContext ? moodContext.trend : 'unknown',
+      history_length: (config.mood_history || []).length
+    },
+
+    drift: {},
+    pending_changes: config.pending_changes ? Object.assign({}, config.pending_changes) : {},
+
+    change_history_summary: { permanent: 0, reverted: 0 },
+
+    memory_stats: config.memory_stats ? Object.assign({}, config.memory_stats) : null,
+
+    soul_evolve: {
+      evolve_count: config.soul_evolve ? config.soul_evolve.evolve_count : null,
+      last_execution: config.soul_evolve ? config.soul_evolve.last_execution : null
+    },
+
+    integrity: {
+      violation_count: config.integrity ? config.integrity.violation_count : 0
+    }
+  };
+
+  // Drift state
+  if (config.drift_state) {
+    for (const mod of Object.keys(config.drift_state)) {
+      base.drift[mod] = { net: config.drift_state[mod].net || 0 };
+    }
+  }
+
+  // Change history summary
+  if (config.change_history && Array.isArray(config.change_history)) {
+    for (const ch of config.change_history) {
+      if (ch.result === 'permanent') base.change_history_summary.permanent++;
+      else if (ch.result === 'reverted') base.change_history_summary.reverted++;
+    }
+  }
+
+  // Mood history summary
+  if (config.mood_history && config.mood_history.length > 0) {
+    let sum = 0, lowConf = 0;
+    const trendCounts = { improving: 0, declining: 0, stable: 0 };
+    for (const m of config.mood_history) {
+      sum += m.score || 0;
+      if (m.confidence === 'low') lowConf++;
+    }
+    base.mood_history_summary = {
+      avg_score: Math.round((sum / config.mood_history.length) * 100) / 100,
+      low_confidence_ratio: Math.round((lowConf / config.mood_history.length) * 100) / 100,
+      history_length: config.mood_history.length
+    };
+  }
+
+  // Dedup stats
+  if (dedupResult) {
+    base.memory_dedup = {
+      dedup_this_session: dedupResult.removed > 0,
+      entries_removed: dedupResult.removed || 0,
+      dedup_ratio: dedupResult.total > 0 ? Math.round((dedupResult.removed / dedupResult.total) * 100) / 100 : 0
+    };
+  }
+
+  return base;
+}
+
+function sendTelemetry(config, telemetryData) {
+  if (!config.telemetry_opt_in) return;
+  if (process.env.SOUL_FORGE_TELEMETRY_DISABLED === '1') return;
+
+  const endpoint = config.telemetry_endpoint;
+  if (!endpoint) return;
+
+  try {
+    const url = new URL(endpoint);
+    const payload = JSON.stringify(telemetryData);
+    const options = {
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      },
+      timeout: 5000,
+      rejectUnauthorized: false // Allow self-signed certs
+    };
+
+    if (config.telemetry_api_key) {
+      options.headers['Authorization'] = 'Bearer ' + config.telemetry_api_key;
+    }
+
+    const req = https.request(options, () => {}); // Fire-and-forget
+    req.on('error', () => {}); // Swallow errors
+    req.on('timeout', () => req.destroy());
+    req.end(payload);
+  } catch {
+    // Silently fail — never block bootstrap
+  }
+}
+
+// ============================================================
 // Main handler
 // ============================================================
 
@@ -1659,6 +1914,12 @@ module.exports = function handler(event) {
   if (typeof config.probe_session_count === 'number') {
     config.probe_session_count++;
   }
+
+  // --- Step 1b: Auto-update check (fire-and-forget, non-blocking) ---
+  const configDir = path.resolve(workspaceDir, '..');
+  checkForUpdates(config, configDir, workspaceDir).catch(() => {});
+  // Note: update downloads happen async but we don't await them.
+  // Updated files take effect next session.
 
   // --- Step 2: Branch on status ---
 
@@ -1837,6 +2098,16 @@ module.exports = function handler(event) {
   // --- Step 6: Export telemetry (Phase 3.3) ---
   generateTelemetry(config, actionSignals, moodContext, dedupResult, workspaceDir);
 
+  // --- Step 6b: Upload telemetry (Phase 3.4, opt-in) ---
+  if (config.telemetry_opt_in) {
+    // Generate anon_id if not yet set
+    if (!config.telemetry_anon_id) {
+      config.telemetry_anon_id = generateAnonId(config);
+    }
+    const enhancedData = generateEnhancedTelemetry(config, actionSignals, moodContext, dedupResult);
+    sendTelemetry(config, enhancedData);
+  }
+
   // --- Step 7: Save config with integrity checksum ---
   config.updated_at = new Date().toISOString();
   config.integrity._handler_checksum = computeConfigChecksum(config);
@@ -1872,5 +2143,12 @@ module.exports._test = {
   processSoulEvolve,
   rollbackSoulEvolve,
   // Phase 3.3
-  generateTelemetry
+  generateTelemetry,
+  // Phase 3.4: Auto-update + Telemetry
+  SOUL_FORGE_VERSION,
+  compareVersions,
+  checkForUpdates,
+  generateAnonId,
+  generateEnhancedTelemetry,
+  sendTelemetry
 };

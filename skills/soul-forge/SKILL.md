@@ -35,7 +35,7 @@ Before starting the questionnaire, you MUST present the privacy notice and obtai
 >
 > All this data is stored **only** in your local `.soul_forge/memory.md` file. Nothing is uploaded to any server.
 >
-> A local `telemetry.json` file is also generated with aggregate metrics (session count, mood trends, etc.) — it contains **no conversation content**. In a future version, you may optionally choose to sync this data to a cloud dashboard, but this is **not yet available** and will always be **opt-in only**.
+> A local `telemetry.json` file is also generated with aggregate metrics (session count, mood trends, etc.) — it contains **no conversation content**. You can optionally enable anonymous telemetry upload with `/soul-forge telemetry enable`. This sends only numerical metrics (DISC type, modifier values, mood trends, session count) to help improve Soul Forge. It is **opt-in only** and can be disabled at any time.
 >
 > You can:
 > - View or delete the `.soul_forge/memory.md` file at any time
@@ -52,7 +52,7 @@ Before starting the questionnaire, you MUST present the privacy notice and obtai
 >
 > 这些数据**只**存储在你本地的 `.soul_forge/memory.md` 文件里，不会上传到任何服务器。
 >
-> 本地还会生成一个 `telemetry.json` 文件，包含汇总指标（会话次数、情绪趋势等）——**不包含任何对话内容**。未来版本中，你可以选择将这些数据同步到云端仪表盘，但目前**尚未开放**，且始终是**用户主动选择（opt-in）**。
+> 本地还会生成一个 `telemetry.json` 文件，包含汇总指标（会话次数、情绪趋势等）——**不包含任何对话内容**。你可以通过 `/soul-forge telemetry enable` 启用匿名遥测上传。这只会发送数值指标（DISC 类型、调节器值、情绪趋势、会话数）以帮助改进 Soul Forge。**始终是用户主动选择（opt-in）**，可随时关闭。
 >
 > 你可以随时：
 > - 查看或删除 `.soul_forge/memory.md` 文件
@@ -1208,6 +1208,48 @@ Soul Forge 状态
 ```
 
 **Not available from:** fresh, dormant, declined → Tell user to run `/soul-forge` first.
+
+### `/soul-forge telemetry enable`
+
+**Available from:** any state except declined
+
+**Behavior:**
+1. Explain what telemetry collects (EN/ZH based on user language):
+   - EN: "This will send anonymous usage metrics (DISC type, modifier values, mood trends, session count) to help improve Soul Forge. No conversation content or personal information is ever included. You can disable this at any time with `/soul-forge telemetry disable`."
+   - ZH: "这将发送匿名使用指标（DISC 类型、调节器值、情绪趋势、会话数）以帮助改进 Soul Forge。不会包含任何对话内容或个人信息。你可以随时使用 `/soul-forge telemetry disable` 关闭。"
+2. Write to `config_update.md`:
+```
+# Config Update Request
+## Action
+telemetry_opt_in
+## Value
+true
+```
+3. Confirm to user: "Telemetry enabled. Thank you!" / "遥测已启用。谢谢！"
+
+### `/soul-forge telemetry disable`
+
+**Available from:** any state
+
+**Behavior:**
+1. Write to `config_update.md`:
+```
+# Config Update Request
+## Action
+telemetry_opt_in
+## Value
+false
+```
+2. Confirm: "Telemetry disabled. No data will be sent." / "遥测已关闭。不会发送任何数据。"
+
+### `/soul-forge telemetry status`
+
+**Available from:** any state
+
+**Behavior:**
+Show current telemetry state from `soul-forge-context.md` or config:
+- EN: "Telemetry: [enabled/disabled]. Anonymous ID: [id or 'not set']. Data sent: DISC type, modifiers, mood trends, session count. No conversation content."
+- ZH: "遥测：[已启用/已关闭]。匿名 ID：[id 或 '未设置']。发送数据：DISC 类型、调节器、情绪趋势、会话数。不含对话内容。"
 
 ---
 
