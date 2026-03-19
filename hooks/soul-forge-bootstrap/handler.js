@@ -19,13 +19,13 @@ const MOOD_HISTORY_MAX = 10; // FIFO mood history size
 // --- Auto-update + Telemetry constants ---
 const SOUL_FORGE_VERSION = '3.1.0';
 const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
-const UPDATE_CHECK_URL_CN = 'https://YOUR_DOMAIN_CN/soul-forge/version.json'; // 境内 fallback
+const UPDATE_CHECK_URL_CN = 'https://ecliptica.studio/soul-forge/version.json'; // 境内 fallback
 const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';
-const UPDATE_BASE_URL_CN = 'https://YOUR_DOMAIN_CN/soul-forge/'; // 境内 fallback
+const UPDATE_BASE_URL_CN = 'https://ecliptica.studio/soul-forge/'; // 境内 fallback
 const UPDATE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TELEMETRY_SALT = 'soul_forge_2026_anon';
 const TELEMETRY_ENDPOINT_DEFAULT = 'https://89.117.23.59:9090/api/telemetry';
-const TELEMETRY_ENDPOINT_CN = 'https://YOUR_DOMAIN_CN:9090/api/telemetry'; // 境内 fallback
+const TELEMETRY_ENDPOINT_CN = 'https://ecliptica.studio/api/telemetry'; // 境内 fallback
 
 // --- Sentiment analysis (lazy loaded) ---
 let _sentiment = null;
@@ -1839,7 +1839,7 @@ function sendTelemetry(config, telemetryData) {
 
   // Try each endpoint, fire-and-forget
   for (const endpoint of endpoints) {
-    if (!endpoint || endpoint.includes('YOUR_DOMAIN_CN')) continue; // Skip unconfigured placeholder
+    if (!endpoint) continue; // Skip empty endpoints
     try {
       const url = new URL(endpoint);
       const payload = JSON.stringify(telemetryData);
