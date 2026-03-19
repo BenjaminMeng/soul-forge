@@ -19,9 +19,13 @@ const MOOD_HISTORY_MAX = 10; // FIFO mood history size
 // --- Auto-update + Telemetry constants ---
 const SOUL_FORGE_VERSION = '3.1.0';
 const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
+const UPDATE_CHECK_URL_CN = 'https://YOUR_DOMAIN_CN/soul-forge/version.json'; // 境内 fallback
 const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';
+const UPDATE_BASE_URL_CN = 'https://YOUR_DOMAIN_CN/soul-forge/'; // 境内 fallback
 const UPDATE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TELEMETRY_SALT = 'soul_forge_2026_anon';
+const TELEMETRY_ENDPOINT_DEFAULT = 'https://89.117.23.59:9090/api/telemetry';
+const TELEMETRY_ENDPOINT_CN = 'https://YOUR_DOMAIN_CN:9090/api/telemetry'; // 境内 fallback
 
 // --- Sentiment analysis (lazy loaded) ---
 let _sentiment = null;
@@ -643,7 +647,7 @@ function migrateSchema(config) {
   if (!config.last_update_applied) config.last_update_applied = null;
   if (config.telemetry_opt_in === undefined) config.telemetry_opt_in = false;
   if (!config.telemetry_anon_id) config.telemetry_anon_id = null;
-  if (!config.telemetry_endpoint) config.telemetry_endpoint = 'https://89.117.23.59:9090/api/telemetry';
+  if (!config.telemetry_endpoint) config.telemetry_endpoint = TELEMETRY_ENDPOINT_DEFAULT;
 
   return config;
 }
@@ -1671,7 +1675,8 @@ function checkForUpdates(config, configDir, workspaceDir) {
   const lastCheck = config.last_update_check ? new Date(config.last_update_check).getTime() : 0;
   if (Date.now() - lastCheck < UPDATE_COOLDOWN_MS) return Promise.resolve(null);
 
-  return httpsGet(UPDATE_CHECK_URL, 5000).then(body => {
+  // Try primary (GitHub), fallback to CN mirror
+  return httpsGet(UPDATE_CHECK_URL, 3000).catch(() => httpsGet(UPDATE_CHECK_URL_CN, 5000)).then(body => {
     const remote = JSON.parse(body);
     config.last_update_check = new Date().toISOString();
 
@@ -1680,35 +1685,42 @@ function checkForUpdates(config, configDir, workspaceDir) {
       return null; // Already up to date
     }
 
-    // Download each file
-    const fileMap = remote.files || {};
-    const downloads = Object.keys(fileMap).map(repoPath => {
-      const url = UPDATE_BASE_URL + repoPath;
-      // Determine target path based on file type
-      let targetPath;
-      if (repoPath.startsWith('hooks/')) {
-        targetPath = path.join(configDir, repoPath);
-      } else if (repoPath.startsWith('skills/')) {
-        targetPath = path.join(configDir, repoPath);
-      } else {
-        return Promise.resolve(); // Unknown path, skip
-      }
+    // Determine which base URL is reachable (same as version check)
+    const baseUrlPromise = httpsGet(UPDATE_CHECK_URL, 2000)
+      .then(() => UPDATE_BASE_URL)
+      .catch(() => UPDATE_BASE_URL_CN);
 
-      return httpsGet(url, 10000).then(content => {
-        const tmpPath = targetPath + '.tmp';
-        const dir = path.dirname(targetPath);
-        try { fs.mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
-        fs.writeFileSync(tmpPath, content, 'utf-8');
-        fs.renameSync(tmpPath, targetPath); // Atomic replace
-      }).catch(() => {
-        // Individual file download failure — skip, don't break
+    return baseUrlPromise.then(baseUrl => {
+      // Download each file
+      const fileMap = remote.files || {};
+      const downloads = Object.keys(fileMap).map(repoPath => {
+        const url = baseUrl + repoPath;
+        // Determine target path based on file type
+        let targetPath;
+        if (repoPath.startsWith('hooks/')) {
+          targetPath = path.join(configDir, repoPath);
+        } else if (repoPath.startsWith('skills/')) {
+          targetPath = path.join(configDir, repoPath);
+        } else {
+          return Promise.resolve(); // Unknown path, skip
+        }
+
+        return httpsGet(url, 10000).then(content => {
+          const tmpPath = targetPath + '.tmp';
+          const dir = path.dirname(targetPath);
+          try { fs.mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
+          fs.writeFileSync(tmpPath, content, 'utf-8');
+          fs.renameSync(tmpPath, targetPath); // Atomic replace
+        }).catch(() => {
+          // Individual file download failure — skip, don't break
+        });
       });
-    });
 
-    return Promise.all(downloads).then(() => {
-      config.soul_forge_version = remote.version;
-      config.last_update_applied = new Date().toISOString();
-      return remote;
+      return Promise.all(downloads).then(() => {
+        config.soul_forge_version = remote.version;
+        config.last_update_applied = new Date().toISOString();
+        return remote;
+      });
     });
   }).catch(() => {
     // Network failure — silently skip, don't block bootstrap
@@ -1820,35 +1832,42 @@ function sendTelemetry(config, telemetryData) {
   if (!config.telemetry_opt_in) return;
   if (process.env.SOUL_FORGE_TELEMETRY_DISABLED === '1') return;
 
-  const endpoint = config.telemetry_endpoint;
-  if (!endpoint) return;
+  const endpoints = [
+    config.telemetry_endpoint || TELEMETRY_ENDPOINT_DEFAULT,
+    TELEMETRY_ENDPOINT_CN
+  ];
 
-  try {
-    const url = new URL(endpoint);
-    const payload = JSON.stringify(telemetryData);
-    const options = {
-      hostname: url.hostname,
-      port: url.port || 443,
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload)
-      },
-      timeout: 5000,
-      rejectUnauthorized: false // Allow self-signed certs
-    };
+  // Try each endpoint, fire-and-forget
+  for (const endpoint of endpoints) {
+    if (!endpoint || endpoint.includes('YOUR_DOMAIN_CN')) continue; // Skip unconfigured placeholder
+    try {
+      const url = new URL(endpoint);
+      const payload = JSON.stringify(telemetryData);
+      const options = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        },
+        timeout: 5000,
+        rejectUnauthorized: false // Allow self-signed certs
+      };
 
-    if (config.telemetry_api_key) {
-      options.headers['Authorization'] = 'Bearer ' + config.telemetry_api_key;
+      if (config.telemetry_api_key) {
+        options.headers['Authorization'] = 'Bearer ' + config.telemetry_api_key;
+      }
+
+      const req = https.request(options, () => {}); // Fire-and-forget
+      req.on('error', () => {}); // Swallow errors
+      req.on('timeout', () => req.destroy());
+      req.end(payload);
+      return; // First successful send attempt, done
+    } catch {
+      continue; // Try next endpoint
     }
-
-    const req = https.request(options, () => {}); // Fire-and-forget
-    req.on('error', () => {}); // Swallow errors
-    req.on('timeout', () => req.destroy());
-    req.end(payload);
-  } catch {
-    // Silently fail — never block bootstrap
   }
 }
 
