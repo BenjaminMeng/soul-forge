@@ -1,9 +1,12 @@
-Soul Forge - AI Personality Calibration for OpenClaw
-====================================================
+Soul Forge v2 (Beta) - AI Personality Calibration for OpenClaw
+==============================================================
 
-Soul Forge uses the DISC personality framework to calibrate your AI
-assistant's communication style, making it feel more natural and
-personalized to you.
+Soul Forge uses a DISC-inspired behavioral style classification system
+to calibrate your AI assistant's communication style, making it feel
+more natural and personalized to you.
+
+Version: 2.0-beta
+Tested with: DeepSeek V3.2 via LiteLLM
 
 INSTALLATION
 ------------
@@ -21,8 +24,18 @@ USAGE
 Send /soul-forge in Telegram to start calibration.
 
 After agreeing to the privacy notice, you'll answer 8 short
-scenario-based questions. Soul Forge then determines your DISC type
-and generates a personalized AI personality.
+scenario-based questions using a "what kind of person" framing.
+Soul Forge then determines your behavioral style type (D/I/S/C)
+and generates a personalized AI personality with continuous learning.
+
+FEATURES
+--------
+- 8 bilingual scenario questions (EN/ZH) with dual-axis scoring
+- 4 personality types: Advisor (D), Partner (I), Butler (S), Critic (C)
+- Continuous observation via Heartbeat + Probing
+- Sentiment analysis + drift detection (Phase 3)
+- Staged change pipeline with SOUL_EVOLVE
+- All data stored 100% locally
 
 AVAILABLE COMMANDS
 ------------------
@@ -38,8 +51,20 @@ All data is stored locally in your ~/.openclaw/workspace/.soul_forge/
 directory. Nothing is sent to external servers. You can delete the
 .soul_forge/ directory at any time to remove all Soul Forge data.
 
+KNOWN LIMITATIONS (Beta)
+------------------------
+- Tool narration: The AI may show internal processing messages
+  (e.g., "Reading skill file...") before the actual interaction.
+  This is an OpenClaw framework behavior, not a Soul Forge issue.
+- Calculation display: Some models may show the full scoring
+  calculation instead of just the result summary.
+- Link previews: Telegram may generate link previews for .md
+  filenames. These are harmless visual artifacts.
+
 FEEDBACK & SUPPORT
 ------------------
+Official website: https://soulforge.example.com (coming soon)
+GitHub: https://github.com/<repo>/soul-forge
+
 We'd love to hear from you! After using Soul Forge for a few days,
-please share your feedback. Contact us via the channel where you
-received this package.
+please share your feedback.
