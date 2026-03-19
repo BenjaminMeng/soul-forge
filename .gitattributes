@@ -1,0 +1,11 @@
+# Ensure bash scripts always have LF line endings (critical for macOS/Linux)
+*.sh text eol=lf
+
+# PowerShell scripts can use CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Markdown and JSON are text
+*.md text
+*.json text
+*.txt text
