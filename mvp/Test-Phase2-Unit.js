@@ -79,7 +79,7 @@ console.log('\n--- T-WP0-2: Schema Migration v1 → v2 ---');
 
   const migrated = migrateSchema(JSON.parse(JSON.stringify(v1Config)));
 
-  check('T-WP0-2a', 'version → 2', migrated.version === 2);
+  check('T-WP0-2a', 'version → 3 (v1 migrates to latest)', migrated.version === 3);
   check('T-WP0-2b', 'q_version added = 1', migrated.q_version === 1);
   check('T-WP0-2c', 'answers_hash added = null', migrated.disc.answers_hash === null);
   check('T-WP0-2d', 'probe_phase_start = created_at', migrated.probe_phase_start === '2026-02-15T10:00:00Z');
@@ -94,7 +94,7 @@ console.log('\n--- T-WP0-2: Schema Migration v1 → v2 ---');
 {
   const v2Config = { status: 'calibrated', version: 2, q_version: 2, probe_phase_start: '2026-01-01', probe_session_count: 5 };
   const result = migrateSchema(JSON.parse(JSON.stringify(v2Config)));
-  check('T-WP0-2j', 'v2 config unchanged by migrate', result.probe_session_count === 5 && result.version === 2);
+  check('T-WP0-2j', 'v2 config migrated to v3 (probe_session_count preserved)', result.probe_session_count === 5 && result.version === 3);
 }
 
 // ============================================================

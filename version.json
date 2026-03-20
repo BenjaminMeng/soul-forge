@@ -1,0 +1,13 @@
+{
+  "version": "3.1.0",
+  "min_handler_version": "3.0.0",
+  "released_at": "2026-03-20T00:00:00Z",
+  "files": {
+    "hooks/soul-forge-bootstrap/handler.js": "hooks/soul-forge-bootstrap/handler.js",
+    "hooks/soul-forge-bootstrap/sentiment.js": "hooks/soul-forge-bootstrap/sentiment.js",
+    "hooks/soul-forge-bootstrap/sentiments/zh.json": "hooks/soul-forge-bootstrap/sentiments/zh.json",
+    "hooks/soul-forge-bootstrap/sentiments/en.json": "hooks/soul-forge-bootstrap/sentiments/en.json",
+    "skills/soul-forge/SKILL.md": "skills/soul-forge/SKILL.md"
+  },
+  "changelog": "Auto-update + telemetry opt-in support"
+}

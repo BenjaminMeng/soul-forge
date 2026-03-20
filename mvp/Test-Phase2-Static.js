@@ -74,7 +74,7 @@ for (const sec of ['C', 'D', 'F', 'I', 'M']) {
 // T-WP0 static: Source config.json
 // ============================================================
 console.log('\n--- T-WP0-1: Source config.json ---');
-check('T-WP0-1-version', `Source config version=2 (actual: ${srcConfig.version})`, srcConfig.version === 2);
+check('T-WP0-1-version', `Source config version=3 (actual: ${srcConfig.version})`, srcConfig.version === 3);
 check('T-WP0-1-status', `Source config status=fresh (actual: ${srcConfig.status})`, srcConfig.status === 'fresh');
 const srcConfigKeys = Object.keys(srcConfig);
 check('T-WP0-1-minimal', `Source config is minimal (keys: ${srcConfigKeys.join(',')})`, srcConfigKeys.length <= 2);
@@ -86,7 +86,7 @@ console.log('\n--- handler.js Phase 2 functions ---');
 check('handler-migrateSchema', 'migrateSchema() present', handlerContent.includes('migrateSchema'));
 check('handler-computeProbing', 'computeProbingControl() present', handlerContent.includes('computeProbingControl'));
 check('handler-preflight', 'pre-flight check present', handlerContent.match(/pre.?flight/i));
-check('handler-version2', 'version 2 referenced', handlerContent.includes('version: 2') || handlerContent.includes('version:2'));
+check('handler-version2', 'version 3 referenced (schema v3)', handlerContent.includes('version: 3') || handlerContent.includes('version:3') || handlerContent.includes('CURRENT_SCHEMA_VERSION = 3'));
 check('handler-q_version', 'q_version field present', handlerContent.includes('q_version'));
 check('handler-answers_hash', 'answers_hash field present', handlerContent.includes('answers_hash'));
 check('handler-probe_phase_start', 'probe_phase_start field present', handlerContent.includes('probe_phase_start'));

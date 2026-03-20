@@ -2,18 +2,45 @@
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const crypto = require('crypto');
 
 // ============================================================
 // Soul Forge Bootstrap Hook — handler.js (CommonJS)
 // Runs on agent:bootstrap. Pure Node.js builtins only.
 // ============================================================
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 const CURRENT_Q_VERSION = 2;
-const FRESH_CONFIG = { status: 'fresh', version: 2 };
+const FRESH_CONFIG = { status: 'fresh', version: 3 };
 const MAX_INJECT_BYTES = 6144; // 6KB budget
 const MAX_OBSERVATIONS = 20;
 const READINESS_THRESHOLD = 5;
+const MOOD_HISTORY_MAX = 10; // FIFO mood history size
+
+// --- Auto-update + Telemetry constants ---
+const SOUL_FORGE_VERSION = '3.1.0';
+const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
+const UPDATE_CHECK_URL_CN = 'https://ecliptica.studio/soul-forge/version.json';
+const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';
+const UPDATE_BASE_URL_CN = 'https://ecliptica.studio/soul-forge/';
+const UPDATE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TELEMETRY_SALT = 'soul_forge_2026_anon';
+const TELEMETRY_ENDPOINT_DEFAULT = 'https://89.117.23.59:9090/api/telemetry';
+const TELEMETRY_ENDPOINT_CN = 'https://ecliptica.studio/api/telemetry';
+
+// --- Sentiment analysis (lazy loaded) ---
+let _sentiment = null;
+function getSentiment() {
+  if (!_sentiment) {
+    try {
+      _sentiment = require('./sentiment');
+    } catch {
+      _sentiment = { analyze: () => ({ score: 0, vote: 'neutral', tokens: 0, confidence: 'low', lang: 'unknown' }) };
+    }
+  }
+  return _sentiment;
+}
 
 // --- Utility helpers ---
 
@@ -57,32 +84,159 @@ function safeParseJSON(str) {
   }
 }
 
+// --- Config backup (config.json.prev) ---
+
+function backupConfig(workspaceDir) {
+  const configPath = path.join(workspaceDir, '.soul_forge', 'config.json');
+  const prevPath = configPath + '.prev';
+  try {
+    if (fs.existsSync(configPath)) {
+      fs.copyFileSync(configPath, prevPath);
+    }
+  } catch {
+    // Best effort
+  }
+}
+
+// --- Simple checksum for tamper detection ---
+
+function computeConfigChecksum(config) {
+  // Exclude integrity fields from checksum to avoid circular dependency
+  const copy = Object.assign({}, config);
+  delete copy.integrity;
+  const str = JSON.stringify(copy);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + ch;
+    hash |= 0; // Convert to 32-bit integer
+  }
+  return hash.toString(16);
+}
+
 // --- Schema migration ---
 
 function migrateSchema(config) {
-  if (config.version >= CURRENT_SCHEMA_VERSION) return config;
+  if (!config) return Object.assign({}, FRESH_CONFIG);
+  if (config.version >= CURRENT_SCHEMA_VERSION) {
+    // Phase 3.2: Ensure soul_evolve.pending field exists even on existing v3 configs
+    if (config.soul_evolve && !config.soul_evolve.hasOwnProperty('pending')) {
+      config.soul_evolve.pending = null;
+    }
+    // Phase 3.4: Auto-update + telemetry fields (ensure they exist)
+    if (!config.soul_forge_version) config.soul_forge_version = SOUL_FORGE_VERSION;
+    if (config.auto_update === undefined) config.auto_update = true;
+    if (!config.last_update_check) config.last_update_check = null;
+    if (!config.last_update_applied) config.last_update_applied = null;
+    if (config.telemetry_opt_in === undefined) config.telemetry_opt_in = false;
+    if (!config.telemetry_anon_id) config.telemetry_anon_id = null;
+    if (!config.telemetry_endpoint) config.telemetry_endpoint = TELEMETRY_ENDPOINT_DEFAULT;
+    return config;
+  }
 
   // v1 → v2 migration
-  if (!config.q_version) {
-    config.q_version = 1;
-  }
-  if (!config.disc) {
-    config.disc = {};
-  }
-  if (config.disc.answers_hash === undefined) {
-    config.disc.answers_hash = null;
-  }
-  if (!config.probe_phase_start) {
-    config.probe_phase_start = config.created_at || new Date().toISOString();
-  }
-  if (config.last_style_probe === undefined) {
-    config.last_style_probe = null;
-  }
-  if (config.probe_session_count === undefined) {
-    config.probe_session_count = 0;
+  if (!config.version || config.version < 2) {
+    if (!config.q_version) {
+      config.q_version = 1;
+    }
+    if (!config.disc) {
+      config.disc = {};
+    }
+    if (config.disc.answers_hash === undefined) {
+      config.disc.answers_hash = null;
+    }
+    if (!config.probe_phase_start) {
+      config.probe_phase_start = config.created_at || new Date().toISOString();
+    }
+    if (config.last_style_probe === undefined) {
+      config.last_style_probe = null;
+    }
+    if (config.probe_session_count === undefined) {
+      config.probe_session_count = 0;
+    }
+    if (!config.modifiers) {
+      config.modifiers = { humor: 1, verbosity: 1, proactivity: 1, challenge: 1 };
+    }
+    config.version = 2;
   }
 
-  config.version = CURRENT_SCHEMA_VERSION;
+  // v2 → v3 migration
+  if (config.version < 3) {
+    config.version = 3;
+
+    // mood_history: FIFO array of recent mood snapshots
+    if (!config.mood_history) config.mood_history = [];
+
+    // drift_state: per-modifier drift tracking
+    if (!config.drift_state) {
+      config.drift_state = {
+        verbosity: { net: 0, last_alert_session: null, user_declined: false },
+        humor: { net: 0, last_alert_session: null, user_declined: false },
+        proactivity: { net: 0, last_alert_session: null, user_declined: false },
+        challenge: { net: 0, last_alert_session: null, user_declined: false }
+      };
+    }
+
+    // pending_changes: staged change pipeline
+    if (!config.pending_changes) config.pending_changes = {};
+
+    // change_history: completed changes log
+    if (!config.change_history) config.change_history = [];
+
+    // memory_stats: memory health tracking
+    if (!config.memory_stats) {
+      config.memory_stats = {
+        total_entries: 0, unique_entries: 0, line_count: 0,
+        last_dedup_session: null, entries_removed: 0,
+        last_consolidation: null, last_archive: null
+      };
+    }
+
+    // soul_evolve: SOUL.md evolution tracking
+    if (!config.soul_evolve) {
+      config.soul_evolve = {
+        last_execution: null,
+        evolve_count: { verbosity: 0, humor: 0, challenge: 0, proactivity: 0 },
+        approved_drifts: { verbosity: 0, humor: 0, challenge: 0, proactivity: 0 },
+        pending: null
+      };
+    }
+    // Ensure pending field exists on existing soul_evolve
+    if (config.soul_evolve && !config.soul_evolve.hasOwnProperty('pending')) {
+      config.soul_evolve.pending = null;
+    }
+
+    // calibration_baseline: anchor for SOUL_EVOLVE range checks
+    if (!config.calibration_baseline) {
+      config.calibration_baseline = {
+        modifiers: config.modifiers ? Object.assign({}, config.modifiers) : { humor: 1, verbosity: 1, proactivity: 1, challenge: 1 },
+        disc_scores: config.disc ? Object.assign({}, config.disc.scores || {}) : {},
+        created_at: config.updated_at || new Date().toISOString()
+      };
+    }
+
+    // integrity: tamper detection
+    if (!config.integrity) {
+      config.integrity = {
+        _handler_checksum: null,
+        _last_memory_lines: 0,
+        violation_count: 0
+      };
+    }
+
+    if (!config.calibration_history) config.calibration_history = [];
+    if (!config.updated_at) config.updated_at = new Date().toISOString();
+  }
+
+  // Phase 3.4: Auto-update + telemetry fields
+  if (!config.soul_forge_version) config.soul_forge_version = SOUL_FORGE_VERSION;
+  if (config.auto_update === undefined) config.auto_update = true;
+  if (!config.last_update_check) config.last_update_check = null;
+  if (!config.last_update_applied) config.last_update_applied = null;
+  if (config.telemetry_opt_in === undefined) config.telemetry_opt_in = false;
+  if (!config.telemetry_anon_id) config.telemetry_anon_id = null;
+  if (!config.telemetry_endpoint) config.telemetry_endpoint = TELEMETRY_ENDPOINT_DEFAULT;
+
   return config;
 }
 
@@ -290,6 +444,22 @@ function parseConfigUpdate(content) {
           }
         }
         break;
+      case 'soul_evolve':
+      case 'soul evolve':
+        if (fieldMatch) {
+          const key = fieldMatch[1].toLowerCase();
+          const val = fieldMatch[2].trim();
+          if (key === 'modifier') result.soul_evolve_modifier = val;
+          else if (key === 'direction') result.soul_evolve_direction = val;
+          else if (key === 'backup') result.soul_evolve_backup = val;
+        }
+        break;
+      case 'telemetry_opt_in':
+      case 'telemetry opt in':
+        if (trimmed) {
+          result.telemetry_opt_in = trimmed.toLowerCase() === 'true';
+        }
+        break;
       // 'validation' section removed — confidence is derived purely from score distribution
     }
   }
@@ -440,6 +610,34 @@ function processConfigUpdate(workspaceDir, config) {
       }
     }
 
+    // Handle soul_evolve action (Phase 3.2)
+    if (update.action === 'soul_evolve') {
+      const modifier = update.soul_evolve_modifier || null;
+      const direction = update.soul_evolve_direction || null;
+      if (modifier && direction && config.soul_evolve) {
+        config.soul_evolve.pending = {
+          modifier: modifier,
+          direction: direction,
+          applied_session: config.probe_session_count || 0,
+          validation_window: 10,
+          negative_signals: 0,
+          backup_file: update.soul_evolve_backup || null
+        };
+        config.soul_evolve.last_execution = new Date().toISOString();
+        if (config.soul_evolve.evolve_count) {
+          config.soul_evolve.evolve_count[modifier] = (config.soul_evolve.evolve_count[modifier] || 0) + 1;
+        }
+      }
+    }
+
+    // Handle telemetry opt-in/out (Phase 3.4)
+    if (update.telemetry_opt_in !== undefined) {
+      config.telemetry_opt_in = update.telemetry_opt_in;
+      if (update.telemetry_opt_in && !config.telemetry_anon_id) {
+        config.telemetry_anon_id = generateAnonId(config);
+      }
+    }
+
     // Handle reset/dormant probe field cleanup
     if (update.status === 'dormant' || update.action === 'reset') {
       config.probe_phase_start = null;
@@ -476,6 +674,415 @@ function processConfigUpdate(workspaceDir, config) {
   }
 
   return config;
+}
+
+// --- Mood engine ---
+
+/**
+ * Analyze HEARTBEAT.md content for mood signals.
+ * Returns { score, vote, tokens, confidence, lang }
+ */
+function analyzeMood(workspaceDir) {
+  const heartbeatPath = path.join(workspaceDir, 'HEARTBEAT.md');
+  const content = safeReadFile(heartbeatPath);
+  if (!content) return null;
+
+  // Extract user-facing content (skip Soul Forge segment)
+  const sfStart = content.indexOf('<!-- SOUL_FORGE_START');
+  const sfEnd = content.indexOf('SOUL_FORGE_END -->');
+  let textToAnalyze = content;
+  if (sfStart >= 0 && sfEnd >= 0) {
+    textToAnalyze = content.substring(0, sfStart) + content.substring(sfEnd + 18);
+  }
+
+  // Only analyze if there's meaningful content
+  const trimmed = textToAnalyze.replace(/[#\-*>\s]/g, '').trim();
+  if (trimmed.length < 5) return null;
+
+  const sentiment = getSentiment();
+  return sentiment.analyze(textToAnalyze);
+}
+
+/**
+ * Compute mood trend from mood_history.
+ * Returns 'improving' | 'declining' | 'stable'
+ */
+function computeMoodTrend(moodHistory) {
+  if (!moodHistory || moodHistory.length < 2) return 'stable';
+
+  const recent = moodHistory.slice(-5);
+  if (recent.length < 2) return 'stable';
+
+  const mid = Math.floor(recent.length / 2);
+  const firstHalf = recent.slice(0, mid);
+  const secondHalf = recent.slice(mid);
+
+  const avgFirst = firstHalf.reduce((s, e) => s + e.score, 0) / firstHalf.length;
+  const avgSecond = secondHalf.reduce((s, e) => s + e.score, 0) / secondHalf.length;
+
+  const diff = avgSecond - avgFirst;
+  if (diff > 0.3) return 'improving';
+  if (diff < -0.3) return 'declining';
+  return 'stable';
+}
+
+/**
+ * Update mood_history in config. Returns mood result for context injection.
+ */
+function updateMoodHistory(config, workspaceDir) {
+  const moodResult = analyzeMood(workspaceDir);
+  if (!moodResult || moodResult.confidence === 'low') {
+    return { moodResult: null, trend: computeMoodTrend(config.mood_history) };
+  }
+
+  const sessionCount = config.probe_session_count || 0;
+  const entry = {
+    session: sessionCount,
+    score: moodResult.score,
+    raw_score: moodResult.score,
+    token_count: moodResult.tokens,
+    confidence: moodResult.confidence,
+    emotion: moodResult.vote
+  };
+
+  if (!config.mood_history) config.mood_history = [];
+  config.mood_history.push(entry);
+
+  while (config.mood_history.length > MOOD_HISTORY_MAX) {
+    config.mood_history.shift();
+  }
+
+  const trend = computeMoodTrend(config.mood_history);
+  return { moodResult, trend };
+}
+
+// --- Post-hoc integrity checks ---
+
+function postHocCheck(workspaceDir, config) {
+  const issues = [];
+
+  // 1. config.json checksum tamper detection
+  if (config.integrity && config.integrity._handler_checksum) {
+    const currentChecksum = computeConfigChecksum(config);
+    if (currentChecksum !== config.integrity._handler_checksum) {
+      issues.push({ type: 'CONFIG_TAMPERED', severity: 'high' });
+    }
+  }
+
+  // 2. memory.md overwrite detection
+  const memoryPath = path.join(workspaceDir, '.soul_forge', 'memory.md');
+  if (config.integrity && config.integrity._last_memory_lines > 0) {
+    const memContent = safeReadFile(memoryPath);
+    if (memContent !== null) {
+      const currentLines = memContent.split('\n').length;
+      const lastLines = config.integrity._last_memory_lines;
+      if (currentLines < lastLines * 0.8) {
+        const wasDedup = config.memory_stats &&
+          config.memory_stats.last_dedup_session === (config.probe_session_count || 0);
+        if (!wasDedup) {
+          issues.push({ type: 'MEMORY_OVERWRITTEN', severity: 'high' });
+        }
+      }
+    }
+  }
+
+  // 3. Handle detected issues
+  for (const issue of issues) {
+    if (issue.type === 'CONFIG_TAMPERED') {
+      const prevPath = path.join(workspaceDir, '.soul_forge', 'config.json.prev');
+      if (fs.existsSync(prevPath)) {
+        appendToErrorLog(workspaceDir, 'CONFIG_TAMPERED detected — Agent may have directly written config.json. Logging violation.');
+      }
+      if (!config.integrity) config.integrity = { violation_count: 0 };
+      config.integrity.violation_count = (config.integrity.violation_count || 0) + 1;
+    }
+
+    if (issue.type === 'MEMORY_OVERWRITTEN') {
+      const historyDir = path.join(workspaceDir, '.soul_history');
+      try {
+        if (fs.existsSync(historyDir)) {
+          const backups = fs.readdirSync(historyDir)
+            .filter(f => f.startsWith('memory_') && f.endsWith('.md'))
+            .sort()
+            .reverse();
+          if (backups.length > 0) {
+            const backupPath = path.join(historyDir, backups[0]);
+            const backup = safeReadFile(backupPath);
+            if (backup) {
+              safeWriteFile(memoryPath, backup);
+              appendToErrorLog(workspaceDir, `MEMORY_OVERWRITTEN detected — restored from ${backups[0]}`);
+            }
+          }
+        }
+      } catch {
+        appendToErrorLog(workspaceDir, 'MEMORY_OVERWRITTEN detected — no backup available for restore');
+      }
+      if (!config.integrity) config.integrity = { violation_count: 0 };
+      config.integrity.violation_count = (config.integrity.violation_count || 0) + 1;
+    }
+  }
+
+  return issues;
+}
+
+// --- Update memory stats in config ---
+
+function updateMemoryStats(config, workspaceDir) {
+  const memoryPath = path.join(workspaceDir, '.soul_forge', 'memory.md');
+  const memContent = safeReadFile(memoryPath);
+  if (memContent === null) return;
+
+  const lines = memContent.split('\n').length;
+  const observations = parseMemory(memContent);
+
+  if (!config.memory_stats) {
+    config.memory_stats = {
+      total_entries: 0, unique_entries: 0, line_count: 0,
+      last_dedup_session: null, entries_removed: 0,
+      last_consolidation: null, last_archive: null
+    };
+  }
+
+  config.memory_stats.total_entries = observations.length;
+  config.memory_stats.line_count = lines;
+
+  if (!config.integrity) config.integrity = { violation_count: 0 };
+  config.integrity._last_memory_lines = lines;
+}
+
+// ============================================================
+// Phase 3.1 — Unified Context Adjustments
+// ============================================================
+
+function computeContextAdjustments(moodResult, trend, config) {
+  const adjustments = { verbosity: 0, humor: 0, challenge: 0, proactivity: 0 };
+
+  if (!moodResult) return adjustments;
+
+  if (trend === 'declining' && moodResult.score < -0.2) {
+    adjustments.challenge = -1;
+    adjustments.humor = -1;
+    if (moodResult.score < -0.5) {
+      adjustments.proactivity = 1;
+    }
+  } else if (trend === 'improving' && moodResult.score > 0.3) {
+    adjustments.humor = 1;
+  }
+
+  for (const key of Object.keys(adjustments)) {
+    adjustments[key] = Math.max(-1, Math.min(1, adjustments[key]));
+  }
+
+  return adjustments;
+}
+
+// ============================================================
+// Phase 3.1 — Action Signal Generator
+// ============================================================
+
+function generateActionSignals(config, observations, driftAlerts, moodContext, dedupResult) {
+  const signals = [];
+  const sessionCount = config.probe_session_count || 0;
+  const maturity = getMaturityParams(sessionCount);
+
+  // DRIFT_ALERT signals
+  for (const alert of driftAlerts) {
+    signals.push({
+      signal: 'DRIFT_ALERT',
+      data: { modifier: alert.modifier, direction: alert.direction, net: alert.net }
+    });
+  }
+
+  // CONSOLIDATE signal: unique entries > 50
+  if (config.memory_stats && config.memory_stats.unique_entries > 50) {
+    signals.push({
+      signal: 'CONSOLIDATE',
+      data: { unique_entries: config.memory_stats.unique_entries }
+    });
+  }
+
+  // SOUL_EVOLVE signal
+  if (maturity.soul_evolve_allowed) {
+    const hasPendingEvolve = config.soul_evolve && config.soul_evolve.pending;
+    if (!hasPendingEvolve) {
+      for (const modifier of ['verbosity', 'humor', 'challenge', 'proactivity']) {
+        const drift = config.drift_state && config.drift_state[modifier];
+        if (!drift) continue;
+
+        const absNet = Math.abs(drift.net);
+        if (absNet < maturity.drift_threshold) continue;
+
+        const evolveCount = config.soul_evolve &&
+          config.soul_evolve.evolve_count &&
+          config.soul_evolve.evolve_count[modifier] || 0;
+
+        if (evolveCount >= 3) {
+          signals.push({
+            signal: 'RECALIBRATE_SUGGEST',
+            data: { modifier, evolve_count: evolveCount, reason: 'evolve_count_exceeded' }
+          });
+          continue;
+        }
+
+        if (config.calibration_baseline && config.calibration_baseline.modifiers) {
+          const baseVal = config.calibration_baseline.modifiers[modifier];
+          const currentVal = config.modifiers && config.modifiers[modifier];
+          if (baseVal !== undefined && currentVal !== undefined) {
+            const proposedVal = currentVal + (drift.net > 0 ? 1 : -1);
+            if (Math.abs(proposedVal - baseVal) > 1) {
+              signals.push({
+                signal: 'RECALIBRATE_SUGGEST',
+                data: { modifier, reason: 'baseline_exceeded', baseline: baseVal, proposed: proposedVal }
+              });
+              continue;
+            }
+          }
+        }
+
+        const lastEvolve = config.soul_evolve && config.soul_evolve.last_execution;
+        if (lastEvolve) {
+          const daysSince = (new Date() - new Date(lastEvolve)) / (1000 * 60 * 60 * 24);
+          if (daysSince < maturity.soul_evolve_cooldown_days) continue;
+        }
+
+        signals.push({
+          signal: 'SOUL_EVOLVE',
+          data: { modifier, direction: drift.net > 0 ? 'raise' : 'lower', net: drift.net }
+        });
+      }
+    }
+  }
+
+  // MOOD_SHIFT signal
+  if (moodContext && moodContext.moodResult && moodContext.trend === 'declining' && moodContext.moodResult.score < -0.2) {
+    signals.push({
+      signal: 'MOOD_SHIFT',
+      data: { score: moodContext.moodResult.score, trend: moodContext.trend }
+    });
+  }
+
+  return signals;
+}
+
+// ============================================================
+// Phase 3.1 — Memory Fingerprint Dedup
+// ============================================================
+
+function parseMemoryEntries(content) {
+  if (!content) return [];
+  const entries = [];
+  const sections = content.split(/^(?=## )/m);
+
+  for (const section of sections) {
+    const trimmed = section.trim();
+    if (!trimmed || trimmed.startsWith('# Soul Forge') || !trimmed.startsWith('## ')) continue;
+
+    const fields = {};
+    const fieldPattern = /[-*]\s*\*\*(\w[\w_-]*)\*\*:\s*(.+)/g;
+    let match;
+    while ((match = fieldPattern.exec(trimmed)) !== null) {
+      fields[match[1].toLowerCase().replace(/-/g, '_')] = match[2].trim();
+    }
+
+    const dateMatch = trimmed.match(/^##\s+(.+?)$/m);
+    if (dateMatch) fields._date = dateMatch[1].trim();
+
+    entries.push({ raw: trimmed, fields });
+  }
+  return entries;
+}
+
+function fingerprint(entry) {
+  const type = entry.fields.type || 'unknown';
+
+  const directions = [];
+  const dirRegex = /(\w+)\s*[→\->]+\s*(raise|lower|maintain|pending|提高|降低|维持)/gi;
+  let m;
+  const hint = entry.fields.modifier_hint || '';
+  while ((m = dirRegex.exec(hint)) !== null) {
+    directions.push(`${m[1].toLowerCase()}:${m[2].toLowerCase()}`);
+  }
+  directions.sort();
+
+  let signal = (entry.fields.signal || '').replace(/\d{4}[-/]\d{2}[-/]\d{2}/g, '');
+  signal = signal.replace(/\d+/g, '').trim().substring(0, 50);
+
+  return `${type}|${directions.join(',')}|${signal}`;
+}
+
+function deduplicateMemory(workspaceDir, config) {
+  const memoryPath = path.join(workspaceDir, '.soul_forge', 'memory.md');
+  const content = safeReadFile(memoryPath);
+  if (!content) return { cleaned: false, duplicatesRemoved: 0, backupCreated: false };
+
+  const entries = parseMemoryEntries(content);
+  if (entries.length < 3) return { cleaned: false, duplicatesRemoved: 0, backupCreated: false };
+
+  const groups = {};
+  for (const entry of entries) {
+    const fp = fingerprint(entry);
+    if (!groups[fp]) groups[fp] = [];
+    groups[fp].push(entry);
+  }
+
+  let totalDuplicates = 0;
+  for (const fp of Object.keys(groups)) {
+    if (groups[fp].length > 1) {
+      totalDuplicates += groups[fp].length - 1;
+    }
+  }
+
+  const duplicateRatio = totalDuplicates / entries.length;
+
+  if (duplicateRatio <= 0.5) {
+    return { cleaned: false, duplicatesRemoved: 0, backupCreated: false };
+  }
+
+  const historyDir = path.join(workspaceDir, '.soul_history');
+  let backupCreated = false;
+  try {
+    if (!fs.existsSync(historyDir)) {
+      fs.mkdirSync(historyDir, { recursive: true });
+    }
+    const datestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    const backupPath = path.join(historyDir, `memory_${datestamp}.md`);
+    if (!fs.existsSync(backupPath)) {
+      safeWriteFile(backupPath, content);
+      backupCreated = true;
+    }
+  } catch {
+    // Continue without backup
+  }
+
+  const kept = [];
+  for (const fp of Object.keys(groups)) {
+    const group = groups[fp];
+    kept.push(group[group.length - 1]);
+  }
+
+  const keptSet = new Set(kept.map(e => e.raw));
+  const newSections = [];
+  const h1Match = content.match(/^(# .+\n)/);
+  if (h1Match) newSections.push(h1Match[1]);
+
+  for (const entry of entries) {
+    if (keptSet.has(entry.raw)) {
+      newSections.push(entry.raw);
+    }
+  }
+
+  const newContent = newSections.join('\n\n') + '\n';
+  safeWriteFile(memoryPath, newContent);
+
+  const sessionCount = config.probe_session_count || 0;
+  if (!config.memory_stats) config.memory_stats = {};
+  config.memory_stats.last_dedup_session = sessionCount;
+  config.memory_stats.entries_removed = totalDuplicates;
+  config.memory_stats.unique_entries = kept.length;
+
+  appendToErrorLog(workspaceDir, `Memory dedup: removed ${totalDuplicates} duplicates (${entries.length} → ${kept.length} entries, ratio was ${(duplicateRatio * 100).toFixed(1)}%)`);
+
+  return { cleaned: true, duplicatesRemoved: totalDuplicates, backupCreated };
 }
 
 // --- Parse memory.md observations ---
@@ -567,19 +1174,245 @@ function computeCalibrationReadiness(observations) {
   return groups;
 }
 
+// ============================================================
+// Phase 3.1 — Maturity Curve
+// ============================================================
+
+function getMaturityPhase(sessionCount) {
+  if (sessionCount < 30) return 'exploration';
+  if (sessionCount < 100) return 'calibration';
+  return 'stable';
+}
+
+function getMaturityParams(sessionCount) {
+  const phase = getMaturityPhase(sessionCount);
+  const PARAMS = {
+    exploration: {
+      change_cooldown_days: 3, validation_window: 3,
+      drift_threshold: 3, soul_evolve_allowed: false,
+      soul_evolve_cooldown_days: Infinity, mood_trend_min_sessions: 2
+    },
+    calibration: {
+      change_cooldown_days: 7, validation_window: 5,
+      drift_threshold: 5, soul_evolve_allowed: true,
+      soul_evolve_cooldown_days: 15, mood_trend_min_sessions: 3
+    },
+    stable: {
+      change_cooldown_days: 14, validation_window: 8,
+      drift_threshold: 8, soul_evolve_allowed: true,
+      soul_evolve_cooldown_days: 30, mood_trend_min_sessions: 5
+    }
+  };
+  return { phase, ...PARAMS[phase] };
+}
+
+// ============================================================
+// Phase 3.1 — Drift Detection Engine
+// ============================================================
+
+/**
+ * Compute drift state from memory observations.
+ * Updates config.drift_state with net direction counts per modifier.
+ */
+function computeDrift(observations, config) {
+  const sessionCount = config.probe_session_count || 0;
+  const maturity = getMaturityParams(sessionCount);
+  const windowSize = 20;
+  const recent = observations.filter(o => o.status === 'active').slice(-windowSize);
+
+  if (!config.drift_state) {
+    config.drift_state = {
+      verbosity: { net: 0, last_alert_session: null, user_declined: false },
+      humor: { net: 0, last_alert_session: null, user_declined: false },
+      proactivity: { net: 0, last_alert_session: null, user_declined: false },
+      challenge: { net: 0, last_alert_session: null, user_declined: false }
+    };
+  }
+
+  const nets = { verbosity: 0, humor: 0, proactivity: 0, challenge: 0 };
+
+  for (const obs of recent) {
+    if (!obs.modifier_hint) continue;
+    const hintMatch = obs.modifier_hint.match(/(\w+)\s*[→\->]+\s*(.+)/);
+    if (!hintMatch) continue;
+
+    const modifier = hintMatch[1].toLowerCase().trim();
+    const direction = hintMatch[2].toLowerCase().trim();
+
+    if (!(modifier in nets)) continue;
+
+    if (direction.includes('lower') || direction.includes('降低') || direction.includes('减少')) {
+      nets[modifier]--;
+    } else if (direction.includes('raise') || direction.includes('提高') || direction.includes('增加')) {
+      nets[modifier]++;
+    }
+  }
+
+  const alerts = [];
+  for (const modifier of Object.keys(nets)) {
+    if (!config.drift_state[modifier]) {
+      config.drift_state[modifier] = { net: 0, last_alert_session: null, user_declined: false };
+    }
+    config.drift_state[modifier].net = nets[modifier];
+
+    const absNet = Math.abs(nets[modifier]);
+    if (absNet >= maturity.drift_threshold) {
+      const lastAlert = config.drift_state[modifier].last_alert_session;
+      const cooldownMet = lastAlert === null || (sessionCount - lastAlert) >= 10;
+
+      if (cooldownMet && !config.drift_state[modifier].user_declined) {
+        const direction = nets[modifier] > 0 ? 'raise' : 'lower';
+        alerts.push({ modifier, direction, net: nets[modifier] });
+        config.drift_state[modifier].last_alert_session = sessionCount;
+      }
+    }
+  }
+
+  return alerts;
+}
+
+// ============================================================
+// Phase 3.1 — Staged Change Pipeline
+// ============================================================
+
+/**
+ * Four-gate admission check for modifier changes.
+ */
+function admitChange(modifier, fromValue, toValue, config) {
+  const sessionCount = config.probe_session_count || 0;
+  const maturity = getMaturityParams(sessionCount);
+  const now = new Date();
+
+  // Gate 1: Rate limit — cooldown period
+  if (config.change_history && config.change_history.length > 0) {
+    const recentChanges = config.change_history.filter(c => c.modifier === modifier);
+    if (recentChanges.length > 0) {
+      const lastChange = recentChanges[recentChanges.length - 1];
+      if (lastChange.timestamp) {
+        const daysSince = (now - new Date(lastChange.timestamp)) / (1000 * 60 * 60 * 24);
+        if (daysSince < maturity.change_cooldown_days) {
+          return { allowed: false, reason: `rate_limit: ${maturity.change_cooldown_days}d cooldown, ${Math.ceil(maturity.change_cooldown_days - daysSince)}d remaining` };
+        }
+      }
+    }
+  }
+
+  // Gate 2: Magnitude limit — ±1 per change
+  const delta = toValue - fromValue;
+  if (Math.abs(delta) > 1) {
+    return { allowed: false, reason: `magnitude: delta=${delta}, max ±1` };
+  }
+
+  // Gate 3: Direction consistency
+  if (config.drift_state && config.drift_state[modifier]) {
+    const driftNet = config.drift_state[modifier].net;
+    if (driftNet > 0 && delta < 0) {
+      return { allowed: false, reason: `direction: drift suggests raise but change is lower` };
+    }
+    if (driftNet < 0 && delta > 0) {
+      return { allowed: false, reason: `direction: drift suggests lower but change is raise` };
+    }
+  }
+
+  // Gate 4: Baseline range — must stay within calibration_baseline ±1
+  if (config.calibration_baseline && config.calibration_baseline.modifiers) {
+    const baselineVal = config.calibration_baseline.modifiers[modifier];
+    if (baselineVal !== undefined) {
+      if (Math.abs(toValue - baselineVal) > 1) {
+        return { allowed: false, reason: `baseline: ${toValue} exceeds baseline(${baselineVal}) ±1 range` };
+      }
+    }
+  }
+
+  return { allowed: true, reason: 'all_gates_passed' };
+}
+
+/**
+ * Process pending changes: check validation windows, promote or rollback.
+ */
+function processPendingChanges(config, observations) {
+  if (!config.pending_changes) return [];
+  const sessionCount = config.probe_session_count || 0;
+  const maturity = getMaturityParams(sessionCount);
+  const actions = [];
+
+  for (const [modifier, pending] of Object.entries(config.pending_changes)) {
+    if (!pending || !pending.applied_session) continue;
+
+    const sessionsSinceApplied = sessionCount - pending.applied_session;
+    const validationWindow = pending.validation_window || maturity.validation_window;
+
+    const recentObs = observations.filter(o =>
+      o.status === 'active' && o.modifier_hint
+    ).slice(-(sessionsSinceApplied + 1));
+
+    let negativeSignals = 0;
+    for (const obs of recentObs) {
+      const hintMatch = obs.modifier_hint.match(/(\w+)\s*[→\->]+\s*(.+)/);
+      if (!hintMatch) continue;
+      const mod = hintMatch[1].toLowerCase().trim();
+      const dir = hintMatch[2].toLowerCase().trim();
+      if (mod !== modifier) continue;
+
+      const pendingDir = pending.to < pending.from ? 'lower' : 'raise';
+      const obsDir = (dir.includes('raise') || dir.includes('提高')) ? 'raise' :
+                     (dir.includes('lower') || dir.includes('降低')) ? 'lower' : null;
+      if (obsDir && obsDir !== pendingDir) {
+        negativeSignals++;
+      }
+    }
+
+    pending.negative_signals = negativeSignals;
+
+    if (sessionsSinceApplied >= validationWindow) {
+      if (negativeSignals <= 1) {
+        actions.push({ type: 'permanent', modifier, from: pending.from, to: pending.to });
+        if (!config.change_history) config.change_history = [];
+        config.change_history.push({
+          modifier, from: pending.from, to: pending.to,
+          session: sessionCount, result: 'permanent',
+          timestamp: new Date().toISOString()
+        });
+        delete config.pending_changes[modifier];
+      } else {
+        actions.push({ type: 'reverted', modifier, from: pending.to, to: pending.from });
+        if (config.modifiers) {
+          config.modifiers[modifier] = pending.from;
+        }
+        if (!config.change_history) config.change_history = [];
+        config.change_history.push({
+          modifier, from: pending.to, to: pending.from,
+          session: sessionCount, result: 'reverted',
+          timestamp: new Date().toISOString()
+        });
+        delete config.pending_changes[modifier];
+      }
+    }
+  }
+
+  if (config.change_history && config.change_history.length > 20) {
+    config.change_history = config.change_history.slice(-20);
+  }
+
+  return actions;
+}
+
 // --- Generate injection content ---
 
-function generateInjection(config, observations, readiness) {
+function generateInjection(config, observations, readiness, moodContext, actionSignals) {
   const lines = [];
 
   lines.push('# Soul Forge Calibration Context');
   lines.push('');
 
-  // Status section
+  // Status section (with maturity phase)
   lines.push('## Status');
   const discType = config.disc ? config.disc.primary : 'unknown';
   const confidence = config.disc ? config.disc.confidence : 'unknown';
-  lines.push(`${config.status} | ${discType}-type | confidence: ${confidence}`);
+  const sessionCount = config.probe_session_count || 0;
+  const maturity = getMaturityParams(sessionCount);
+  lines.push(`${config.status} | ${discType}-type | confidence: ${confidence} | session: ${sessionCount}`);
+  lines.push(`maturity: ${maturity.phase} | cooldown: ${maturity.change_cooldown_days}d | drift_threshold: ${maturity.drift_threshold}`);
   lines.push('');
 
   // Active modifiers
@@ -601,6 +1434,60 @@ function generateInjection(config, observations, readiness) {
     lines.push('verbosity: 1 (concise) | humor: 1 (occasional) | proactivity: 1 (low) | challenge: 1 (gentle)');
   }
   lines.push('');
+
+  // Context Adjustments (Phase 3: mood-driven)
+  if (moodContext && moodContext.moodResult) {
+    lines.push('## Context Adjustments');
+    const mc = moodContext;
+    const moodLabel = mc.moodResult.score > 0.3 ? 'positive' :
+                      mc.moodResult.score < -0.3 ? 'negative' : 'neutral';
+    lines.push(`mood: ${mc.moodResult.score} (${moodLabel}) | trend: ${mc.trend} | emotion: ${mc.moodResult.vote}`);
+
+    const overrides = [];
+    if (mc.trend === 'declining' && mc.moodResult.score < -0.2) {
+      overrides.push('challenge -1 (mood-driven)');
+      overrides.push('humor -1 (mood-driven)');
+      if (mc.moodResult.score < -0.5) {
+        overrides.push('proactivity +1 (mood-driven, supportive)');
+      }
+    }
+    if (overrides.length > 0) {
+      lines.push(`active_overrides: ${overrides.join(', ')}`);
+    } else {
+      lines.push('active_overrides: none');
+    }
+    lines.push('');
+  }
+
+  // Action Signals (Phase 3.1)
+  if (actionSignals && actionSignals.length > 0) {
+    lines.push('## Action Signals');
+    for (const sig of actionSignals) {
+      const dataStr = Object.entries(sig.data || {}).map(([k, v]) => `${k}=${v}`).join(', ');
+      lines.push(`- ${sig.signal}: ${dataStr}`);
+    }
+    lines.push('');
+  }
+
+  // Pending Changes (Phase 3.1)
+  const hasPendingChanges = config.pending_changes && Object.keys(config.pending_changes).length > 0;
+  const hasPendingEvolve = config.soul_evolve && config.soul_evolve.pending;
+  if (hasPendingChanges || hasPendingEvolve) {
+    lines.push('## Pending Changes');
+    if (hasPendingChanges) {
+      for (const [mod, pc] of Object.entries(config.pending_changes)) {
+        if (!pc || !pc.applied_session) continue;
+        const remaining = (pc.validation_window || 5) - ((config.probe_session_count || 0) - pc.applied_session);
+        lines.push(`- ${mod}: ${pc.from}→${pc.to} (${remaining > 0 ? remaining + ' sessions remaining' : 'validation complete'}), negative_signals: ${pc.negative_signals || 0}`);
+      }
+    }
+    if (hasPendingEvolve) {
+      const pe = config.soul_evolve.pending;
+      const remaining = (pe.validation_window || 10) - ((config.probe_session_count || 0) - pe.applied_session);
+      lines.push(`- SOUL_EVOLVE: ${pe.modifier} ${pe.direction} (${remaining > 0 ? remaining + ' sessions remaining' : 'validation complete'}), negative_signals: ${pe.negative_signals || 0}`);
+    }
+    lines.push('');
+  }
 
   // Calibration readiness
   lines.push('## Calibration Readiness');
@@ -745,6 +1632,312 @@ const HEARTBEAT_SEGMENT = `<!-- SOUL_FORGE_START — CRITICAL: This section is a
   (max once per day). Do NOT read memory.md for counting.
 <!-- SOUL_FORGE_END -->`;
 
+// ============================================================
+// Phase 3.3: Telemetry export
+// ============================================================
+
+function generateTelemetry(config, actionSignals, moodContext, dedupResult, workspaceDir) {
+  const sessionCount = config.probe_session_count || 0;
+  const maturity = getMaturityParams(sessionCount);
+
+  const telemetry = {
+    _schema: 'soul_forge_telemetry_v1',
+    _generated_at: new Date().toISOString(),
+    _privacy: 'This file contains only aggregate metrics. No conversation content is included. Opt-in cloud sync is not yet available.',
+
+    session: {
+      count: sessionCount,
+      maturity_phase: maturity.phase,
+      status: config.status || 'unknown'
+    },
+
+    disc: config.disc ? {
+      primary: config.disc.primary,
+      confidence: config.disc.confidence
+    } : null,
+
+    modifiers: config.modifiers ? { ...config.modifiers } : null,
+
+    mood: moodContext ? {
+      current_score: moodContext.moodResult ? moodContext.moodResult.score : null,
+      trend: moodContext.trend || 'unknown',
+      history_length: (config.mood_history || []).length
+    } : null,
+
+    drift: {},
+    pending_changes: {},
+
+    action_signals: (actionSignals || []).map(s => ({
+      signal: s.signal,
+      data: s.data || {}
+    })),
+
+    memory: {
+      unique_entries: config.memory_stats ? config.memory_stats.unique_entries : null,
+      last_dedup_session: config.memory_stats ? config.memory_stats.last_dedup_session : null,
+      dedup_this_session: dedupResult ? dedupResult.cleaned : false
+    },
+
+    soul_evolve: config.soul_evolve ? {
+      pending: config.soul_evolve.pending ? {
+        modifier: config.soul_evolve.pending.modifier,
+        direction: config.soul_evolve.pending.direction,
+        sessions_remaining: config.soul_evolve.pending.validation_window
+          ? (config.soul_evolve.pending.validation_window - (sessionCount - (config.soul_evolve.pending.applied_session || 0)))
+          : null
+      } : null,
+      evolve_count: config.soul_evolve.evolve_count || {},
+      last_execution: config.soul_evolve.last_execution
+    } : null,
+
+    integrity: config.integrity ? {
+      violation_count: config.integrity.violation_count || 0
+    } : null
+  };
+
+  if (config.drift_state) {
+    for (const [mod, state] of Object.entries(config.drift_state)) {
+      telemetry.drift[mod] = { net: state.net || 0 };
+    }
+  }
+
+  if (config.pending_changes) {
+    for (const [mod, pending] of Object.entries(config.pending_changes)) {
+      if (pending) {
+        telemetry.pending_changes[mod] = {
+          from: pending.from, to: pending.to,
+          negative_signals: pending.negative_signals || 0
+        };
+      }
+    }
+  }
+
+  const telemetryPath = path.join(workspaceDir, '.soul_forge', 'telemetry.json');
+  safeWriteFile(telemetryPath, JSON.stringify(telemetry, null, 2));
+
+  return telemetry;
+}
+
+// ============================================================
+// Phase 3.4: Auto-update + Telemetry upload
+// ============================================================
+
+function httpsGet(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: timeoutMs || 5000 }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        httpsGet(res.headers.location, timeoutMs).then(resolve).catch(reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        res.resume();
+        return;
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+function checkForUpdates(config, configDir, workspaceDir) {
+  if (config.auto_update === false) return Promise.resolve(null);
+  if (process.env.SOUL_FORGE_NO_UPDATE === '1') return Promise.resolve(null);
+
+  const lastCheck = config.last_update_check ? new Date(config.last_update_check).getTime() : 0;
+  if (Date.now() - lastCheck < UPDATE_COOLDOWN_MS) return Promise.resolve(null);
+
+  return httpsGet(UPDATE_CHECK_URL, 3000).catch(() => httpsGet(UPDATE_CHECK_URL_CN, 5000)).then(body => {
+    const remote = JSON.parse(body);
+    config.last_update_check = new Date().toISOString();
+
+    const localVersion = config.soul_forge_version || SOUL_FORGE_VERSION;
+    if (compareVersions(remote.version, localVersion) <= 0) {
+      return null;
+    }
+
+    const baseUrlPromise = httpsGet(UPDATE_CHECK_URL, 2000)
+      .then(() => UPDATE_BASE_URL)
+      .catch(() => UPDATE_BASE_URL_CN);
+
+    return baseUrlPromise.then(baseUrl => {
+      const fileMap = remote.files || {};
+      const downloads = Object.keys(fileMap).map(repoPath => {
+        const url = baseUrl + repoPath;
+        let targetPath;
+        if (repoPath.startsWith('hooks/')) {
+          targetPath = path.join(configDir, repoPath);
+        } else if (repoPath.startsWith('skills/')) {
+          targetPath = path.join(configDir, repoPath);
+        } else {
+          return Promise.resolve();
+        }
+
+        return httpsGet(url, 10000).then(content => {
+          const tmpPath = targetPath + '.tmp';
+          const dir = path.dirname(targetPath);
+          try { fs.mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
+          fs.writeFileSync(tmpPath, content, 'utf-8');
+          fs.renameSync(tmpPath, targetPath);
+        }).catch(() => {});
+      });
+
+      return Promise.all(downloads).then(() => {
+        config.soul_forge_version = remote.version;
+        config.last_update_applied = new Date().toISOString();
+        return remote;
+      });
+    });
+  }).catch(() => {
+    config.last_update_check = new Date().toISOString();
+    return null;
+  });
+}
+
+function generateAnonId(config) {
+  if (config.telemetry_anon_id) return config.telemetry_anon_id;
+  const source = (config.disc && config.disc.answers_hash || 'unknown') + TELEMETRY_SALT;
+  const hash = crypto.createHash('sha256').update(source).digest('hex');
+  return hash.substring(0, 8);
+}
+
+function generateEnhancedTelemetry(config, actionSignals, moodContext, dedupResult) {
+  const base = {
+    _schema: 'soul_forge_telemetry_v2',
+    _generated_at: new Date().toISOString(),
+    anon_id: generateAnonId(config),
+    soul_forge_version: config.soul_forge_version || SOUL_FORGE_VERSION,
+
+    session: {
+      count: config.probe_session_count || 0,
+      maturity_phase: getMaturityPhase(config.probe_session_count || 0),
+      status: config.status || 'unknown'
+    },
+
+    disc: {
+      primary: config.disc ? config.disc.primary : null,
+      secondary: config.disc ? config.disc.secondary : null,
+      confidence: config.disc ? config.disc.confidence : null,
+      scores: config.disc ? config.disc.scores : null
+    },
+
+    modifiers: config.modifiers ? Object.assign({}, config.modifiers) : null,
+    calibration_baseline: config.calibration_baseline ? config.calibration_baseline.modifiers : null,
+
+    mood: {
+      current_score: moodContext ? (moodContext.moodResult ? moodContext.moodResult.score : null) : null,
+      trend: moodContext ? moodContext.trend : 'unknown',
+      history_length: (config.mood_history || []).length
+    },
+
+    drift: {},
+    pending_changes: config.pending_changes ? Object.assign({}, config.pending_changes) : {},
+
+    change_history_summary: { permanent: 0, reverted: 0 },
+
+    memory_stats: config.memory_stats ? Object.assign({}, config.memory_stats) : null,
+
+    soul_evolve: {
+      evolve_count: config.soul_evolve ? config.soul_evolve.evolve_count : null,
+      last_execution: config.soul_evolve ? config.soul_evolve.last_execution : null
+    },
+
+    integrity: {
+      violation_count: config.integrity ? config.integrity.violation_count : 0
+    }
+  };
+
+  if (config.drift_state) {
+    for (const mod of Object.keys(config.drift_state)) {
+      base.drift[mod] = { net: config.drift_state[mod].net || 0 };
+    }
+  }
+
+  if (config.change_history && Array.isArray(config.change_history)) {
+    for (const ch of config.change_history) {
+      if (ch.result === 'permanent') base.change_history_summary.permanent++;
+      else if (ch.result === 'reverted') base.change_history_summary.reverted++;
+    }
+  }
+
+  if (config.mood_history && config.mood_history.length > 0) {
+    let sum = 0, lowConf = 0;
+    for (const m of config.mood_history) {
+      sum += m.score || 0;
+      if (m.confidence === 'low') lowConf++;
+    }
+    base.mood_history_summary = {
+      avg_score: Math.round((sum / config.mood_history.length) * 100) / 100,
+      low_confidence_ratio: Math.round((lowConf / config.mood_history.length) * 100) / 100,
+      history_length: config.mood_history.length
+    };
+  }
+
+  if (dedupResult) {
+    base.memory_dedup = {
+      dedup_this_session: dedupResult.duplicatesRemoved > 0,
+      entries_removed: dedupResult.duplicatesRemoved || 0
+    };
+  }
+
+  return base;
+}
+
+function sendTelemetry(config, telemetryData) {
+  if (!config.telemetry_opt_in) return;
+  if (process.env.SOUL_FORGE_TELEMETRY_DISABLED === '1') return;
+
+  const endpoints = [
+    config.telemetry_endpoint || TELEMETRY_ENDPOINT_DEFAULT,
+    TELEMETRY_ENDPOINT_CN
+  ];
+
+  for (const endpoint of endpoints) {
+    if (!endpoint) continue;
+    try {
+      const url = new URL(endpoint);
+      const payload = JSON.stringify(telemetryData);
+      const options = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        },
+        timeout: 5000,
+        rejectUnauthorized: false
+      };
+
+      if (config.telemetry_api_key) {
+        options.headers['Authorization'] = 'Bearer ' + config.telemetry_api_key;
+      }
+
+      const req = https.request(options, () => {});
+      req.on('error', () => {});
+      req.on('timeout', () => req.destroy());
+      req.end(payload);
+      return;
+    } catch {
+      continue;
+    }
+  }
+}
+
 // --- Check/repair HEARTBEAT.md ---
 
 function checkHeartbeat(workspaceDir) {
@@ -808,6 +2001,98 @@ function checkSoulMdStructure(workspaceDir, injectionWarnings) {
   appendToErrorLog(workspaceDir, `SOUL.md structure damaged (missing: ${missing.join(', ')}), no snapshot available`);
 }
 
+// --- Phase 3.2: SOUL.md backup automation ---
+
+function backupSoulMd(workspaceDir) {
+  const soulPath = path.join(workspaceDir, 'SOUL.md');
+  const historyDir = path.join(workspaceDir, '.soul_history');
+
+  try {
+    if (!fs.existsSync(soulPath)) return null;
+    if (!fs.existsSync(historyDir)) {
+      fs.mkdirSync(historyDir, { recursive: true });
+    }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupName = `SOUL_${ts}.md`;
+    const backupPath = path.join(historyDir, backupName);
+    fs.copyFileSync(soulPath, backupPath);
+    return backupName;
+  } catch {
+    return null;
+  }
+}
+
+// --- Phase 3.2: Process pending SOUL_EVOLVE validation ---
+
+function processSoulEvolve(config, observations, workspaceDir) {
+  const pending = config.soul_evolve && config.soul_evolve.pending;
+  if (!pending || !pending.applied_session) {
+    return { action: 'none' };
+  }
+
+  const currentSession = config.probe_session_count || 0;
+  const elapsed = currentSession - pending.applied_session;
+  const window = pending.validation_window || 10;
+
+  if (elapsed < window) {
+    let negativeCount = 0;
+    for (const obs of observations) {
+      const hint = obs.modifier_hint || '';
+      if (!hint.includes(pending.modifier)) continue;
+
+      const isRaise = hint.includes('raise');
+      const isLower = hint.includes('lower');
+      if (pending.direction === 'raise' && isLower) negativeCount++;
+      if (pending.direction === 'lower' && isRaise) negativeCount++;
+    }
+
+    pending.negative_signals = negativeCount;
+
+    if (negativeCount >= 2) {
+      return rollbackSoulEvolve(config, workspaceDir, pending, 'negative_signals');
+    }
+
+    return { action: 'validating', elapsed, window, negative_signals: negativeCount };
+  }
+
+  if (pending.negative_signals >= 2) {
+    return rollbackSoulEvolve(config, workspaceDir, pending, 'negative_signals');
+  }
+
+  config.soul_evolve.pending = null;
+  return { action: 'promoted', modifier: pending.modifier, direction: pending.direction };
+}
+
+function rollbackSoulEvolve(config, workspaceDir, pending, reason) {
+  const result = { action: 'rollback', modifier: pending.modifier, reason };
+
+  if (pending.backup_file) {
+    const backupPath = path.join(workspaceDir, '.soul_history', pending.backup_file);
+    const soulPath = path.join(workspaceDir, 'SOUL.md');
+    try {
+      if (fs.existsSync(backupPath)) {
+        fs.copyFileSync(backupPath, soulPath);
+        result.restored = true;
+      }
+    } catch {
+      result.restored = false;
+    }
+  }
+
+  if (config.soul_evolve && config.soul_evolve.evolve_count) {
+    const count = config.soul_evolve.evolve_count[pending.modifier] || 0;
+    if (count > 0) {
+      config.soul_evolve.evolve_count[pending.modifier] = count - 1;
+    }
+  }
+
+  config.soul_evolve.pending = null;
+
+  appendToErrorLog(workspaceDir, `SOUL_EVOLVE rollback: ${pending.modifier} (${reason})`);
+
+  return result;
+}
+
 // ============================================================
 // Main handler
 // ============================================================
@@ -831,7 +2116,9 @@ module.exports = function handler(event) {
   const configPath = path.join(workspaceDir, '.soul_forge', 'config.json');
   const memoryPath = path.join(workspaceDir, '.soul_forge', 'memory.md');
 
-  // --- Step 1: Process pending config_update.md ---
+  // --- Step 1: Backup config ---
+  backupConfig(workspaceDir);
+
   let configRaw = safeReadFile(configPath);
   let config;
 
@@ -858,17 +2145,19 @@ module.exports = function handler(event) {
     safeWriteFile(configPath, JSON.stringify(config, null, 2));
   }
 
-  // Schema migration (v1 → v2)
-  if (!config.version || config.version < CURRENT_SCHEMA_VERSION) {
-    config = migrateSchema(config);
-    safeWriteFile(configPath, JSON.stringify(config, null, 2));
-  }
-
-  // Process config_update.md (may modify config)
+  // Process config_update.md first (Phase 3 order: update before migrate)
   config = processConfigUpdate(workspaceDir, config);
+
+  // Schema migration (v1→v2→v3)
+  config = migrateSchema(config);
+  safeWriteFile(configPath, JSON.stringify(config, null, 2));
 
   // Pre-flight Check
   const preflight = preflightCheck(workspaceDir, config);
+
+  // --- Step 1b: Auto-update check (fire-and-forget, non-blocking) ---
+  const configDir = path.resolve(workspaceDir, '..');
+  checkForUpdates(config, configDir, workspaceDir).catch(() => {});
 
   // --- Step 2: Branch on status ---
 
@@ -968,7 +2257,6 @@ module.exports = function handler(event) {
   // q_version mismatch check + probe cycle reset
   if (config.q_version && config.q_version < CURRENT_Q_VERSION) {
     config._q_outdated = true;
-    // Reset probing cycle so user re-enters Stage 1 after recalibrating
     config.probe_phase_start = new Date().toISOString();
     config.probe_session_count = 0;
     config.last_style_probe = null;
@@ -976,18 +2264,61 @@ module.exports = function handler(event) {
     delete config._q_outdated;
   }
 
-  // Save updated probe_session_count (and any q_version reset)
-  safeWriteFile(configPath, JSON.stringify(config, null, 2));
+  // Phase 3: Post-hoc integrity check
+  const integrityIssues = postHocCheck(workspaceDir, config);
+  if (integrityIssues.length > 0) {
+    for (const issue of integrityIssues) {
+      injectionWarnings.push(`Integrity: ${issue.type} detected and handled.`);
+    }
+  }
+
+  // Phase 3: Mood engine
+  const moodContext = updateMoodHistory(config, workspaceDir);
 
   // Read memory.md
   const memoryContent = safeReadFile(memoryPath);
   const observations = parseMemory(memoryContent);
 
-  // Compute calibration readiness
-  const readiness = computeCalibrationReadiness(observations);
+  // Phase 3.1: Memory fingerprint dedup
+  const dedupResult = deduplicateMemory(workspaceDir, config);
+  if (dedupResult.cleaned) {
+    injectionWarnings.push(`Memory dedup: removed ${dedupResult.duplicatesRemoved} duplicate entries.`);
+  }
 
-  // Generate injection content
-  const injectionContent = generateInjection(config, observations, readiness);
+  // Re-read memory after potential dedup
+  const memoryContentPost = dedupResult.cleaned ? safeReadFile(memoryPath) : memoryContent;
+  const observationsPost = dedupResult.cleaned ? parseMemory(memoryContentPost) : observations;
+
+  // Update memory stats
+  updateMemoryStats(config, workspaceDir);
+
+  // Phase 3.1: Drift detection
+  const driftAlerts = computeDrift(observationsPost, config);
+
+  // Phase 3.1: Process pending changes (validation/rollback)
+  const pipelineActions = processPendingChanges(config, observationsPost);
+  for (const action of pipelineActions) {
+    if (action.type === 'reverted') {
+      injectionWarnings.push(`Change reverted: ${action.modifier} ${action.from}→${action.to} (negative signals detected).`);
+    }
+  }
+
+  // Phase 3.2: Process pending SOUL_EVOLVE validation
+  const evolveResult = processSoulEvolve(config, observationsPost, workspaceDir);
+  if (evolveResult.action === 'rollback') {
+    injectionWarnings.push(`SOUL_EVOLVE rollback: ${evolveResult.modifier} reverted (${evolveResult.reason}).${evolveResult.restored ? ' SOUL.md restored from backup.' : ''}`);
+  } else if (evolveResult.action === 'promoted') {
+    injectionWarnings.push(`SOUL_EVOLVE confirmed: ${evolveResult.modifier} ${evolveResult.direction} is now permanent.`);
+  }
+
+  // Phase 3.1: Generate action signals
+  const actionSignals = generateActionSignals(config, observationsPost, driftAlerts, moodContext, dedupResult);
+
+  // Compute calibration readiness
+  const readiness = computeCalibrationReadiness(observationsPost);
+
+  // Generate injection content (with mood context + action signals)
+  const injectionContent = generateInjection(config, observationsPost, readiness, moodContext, actionSignals);
 
   // Add warnings if any
   let finalContent = injectionContent;
@@ -1019,7 +2350,6 @@ module.exports = function handler(event) {
     for (const w of injectionWarnings) {
       warningSection += `- ${w}\n`;
     }
-    // Find existing injection in bootstrapFiles and append warnings
     const existing = context.bootstrapFiles.find(f => f.name === 'soul-forge-context.md');
     if (existing && !existing.content.includes('## Warnings')) {
       existing.content += warningSection;
@@ -1028,4 +2358,63 @@ module.exports = function handler(event) {
       if (!safeWriteFile(contextPath, existing.content)) appendToErrorLog(workspaceDir, 'Failed to rewrite soul-forge-context.md after warnings');
     }
   }
+
+  // --- Step 6: Export telemetry (Phase 3.3) ---
+  generateTelemetry(config, actionSignals, moodContext, dedupResult, workspaceDir);
+
+  // --- Step 6b: Upload telemetry (Phase 3.4, opt-in) ---
+  if (config.telemetry_opt_in) {
+    if (!config.telemetry_anon_id) {
+      config.telemetry_anon_id = generateAnonId(config);
+    }
+    const enhancedData = generateEnhancedTelemetry(config, actionSignals, moodContext, dedupResult);
+    sendTelemetry(config, enhancedData);
+  }
+
+  // --- Step 7: Save config with integrity checksum ---
+  config.updated_at = new Date().toISOString();
+  if (!config.integrity) config.integrity = { violation_count: 0 };
+  config.integrity._handler_checksum = computeConfigChecksum(config);
+  safeWriteFile(configPath, JSON.stringify(config, null, 2));
+};
+
+// --- Exports for unit testing ---
+module.exports._test = {
+  migrateSchema,
+  computeConfigChecksum,
+  computeMoodTrend,
+  parseMemory,
+  parseConfigUpdate,
+  processConfigUpdate,
+  computeCalibrationReadiness,
+  generateInjection,
+  postHocCheck,
+  updateMemoryStats,
+  backupConfig,
+  preflightCheck,
+  computeProbingControl,
+  // Phase 3.1
+  getMaturityPhase,
+  getMaturityParams,
+  computeDrift,
+  admitChange,
+  processPendingChanges,
+  parseMemoryEntries,
+  fingerprint,
+  deduplicateMemory,
+  computeContextAdjustments,
+  generateActionSignals,
+  // Phase 3.2
+  backupSoulMd,
+  processSoulEvolve,
+  rollbackSoulEvolve,
+  // Phase 3.3
+  generateTelemetry,
+  // Phase 3.4: Auto-update + Telemetry
+  SOUL_FORGE_VERSION,
+  compareVersions,
+  checkForUpdates,
+  generateAnonId,
+  generateEnhancedTelemetry,
+  sendTelemetry
 };
