@@ -460,6 +460,12 @@ function parseConfigUpdate(content) {
           result.telemetry_opt_in = trimmed.toLowerCase() === 'true';
         }
         break;
+      case 'value':
+        // Generic value section: interpret based on action already parsed
+        if (trimmed && result.action === 'telemetry_opt_in') {
+          result.telemetry_opt_in = trimmed.toLowerCase() === 'true';
+        }
+        break;
       // 'validation' section removed — confidence is derived purely from score distribution
     }
   }
