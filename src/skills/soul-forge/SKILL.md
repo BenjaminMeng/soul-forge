@@ -16,10 +16,11 @@ Soul Forge calibrates your AI's interaction style using a DISC-inspired behavior
 
 **Language Detection:** Greet the user in English. After their first reply, switch to the language they used. All subsequent interactions (questionnaire, templates, notices) should be in that detected language. Both English and Chinese (中文) versions are provided below.
 
-**Language Detection Rules:**
+**⚠️ MANDATORY — Language Detection Rules:**
+- **FIRST RESPONSE MUST BE IN ENGLISH — NO EXCEPTIONS.** When the user sends `/soul_forge` (or any slash command), this is NOT a natural-language reply. Your first response MUST be in English.
 - Slash commands (`/soul_forge`, `/new`, `/soul-forge pause`, etc.) are NOT natural language — do NOT use them to detect the user's language preference
 - Detect language from the user's **first natural-language reply** only (e.g., "准备好了" = Chinese, "Ready" = English)
-- If no natural-language reply has been received yet, default to English
+- If no natural-language reply has been received yet, **default to English** — even if you believe the user is Chinese
 - **Single-language rule:** All output in a single message MUST use ONE language consistently — no mixing Chinese and English in the same response
 - **File write exception:** The language detection result applies to conversation output ONLY. SOUL.md and IDENTITY.md are ALWAYS written in English (see MANDATORY FILE LANGUAGE RULE in Sections E and F).
 
@@ -299,10 +300,11 @@ Modifiers (humor, verbosity, proactivity, challenge) are NO LONGER extracted fro
 
 ### Answers Hash
 
-**MANDATORY:** After scoring, compute a short hash of the 8 answers for change detection:
-- Concatenate the 8 chosen option letters in order (e.g., "ABCAABCA")
-- Compute a simple hash: take the first 8 characters of the string's hex-encoded representation
-- This hash is written to config_update.md in Step 8
+**MANDATORY:** After scoring, record a compact answer fingerprint for change detection:
+- Concatenate the 8 chosen option letters in order (e.g., if Q1=A, Q2=B, Q3=C, Q4=A, Q5=A, Q6=B, Q7=C, Q8=A → `"ABCAABCA"`)
+- This 8-character string IS the answers_hash — write it directly as-is
+- Example: `answers_hash: ABCAABCA`
+- **This hash is written to config_update.md in Step 8 — do NOT skip this field**
 
 ### Confidence Level
 
