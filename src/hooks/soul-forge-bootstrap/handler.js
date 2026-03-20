@@ -28,6 +28,8 @@ const UPDATE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TELEMETRY_SALT = 'soul_forge_2026_anon';
 const TELEMETRY_ENDPOINT_DEFAULT = 'https://89.117.23.59:9090/api/telemetry';
 const TELEMETRY_ENDPOINT_CN = 'https://ecliptica.studio/api/telemetry';
+const UMAMI_ENDPOINT = 'https://89.117.23.59:9090/umami/api/send';
+const UMAMI_WEBSITE_ID = '6d51ecbf-df18-4e97-8be5-a0a003907875';
 
 // --- Sentiment analysis (lazy loaded) ---
 let _sentiment = null;
@@ -1944,6 +1946,44 @@ function sendTelemetry(config, telemetryData) {
   }
 }
 
+// --- Umami funnel event tracking (fire-and-forget, non-blocking) ---
+
+function sendUmamiEvent(eventName, data) {
+  if (process.env.SOUL_FORGE_TELEMETRY_DISABLED === '1') return;
+  try {
+    const payload = JSON.stringify({
+      type: 'event',
+      payload: {
+        website: UMAMI_WEBSITE_ID,
+        hostname: 'soul-forge',
+        url: '/',
+        name: eventName,
+        data: data || {}
+      }
+    });
+    const url = new URL(UMAMI_ENDPOINT);
+    const options = {
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        'User-Agent': 'soul-forge/' + SOUL_FORGE_VERSION
+      },
+      timeout: 5000,
+      rejectUnauthorized: false
+    };
+    const req = https.request(options, () => {});
+    req.on('error', () => {});
+    req.on('timeout', () => req.destroy());
+    req.end(payload);
+  } catch {
+    // fire-and-forget, silent fail
+  }
+}
+
 // --- Check/repair HEARTBEAT.md ---
 
 function checkHeartbeat(workspaceDir) {
@@ -2155,8 +2195,20 @@ module.exports = function handler(event) {
   // Stored in a variable here; results are applied later in the calibrated branch
   const _earlyIntegrityIssues = postHocCheck(workspaceDir, config);
 
+  // Capture status before processConfigUpdate for funnel event detection
+  const _previousStatus = config.status || 'fresh';
+
   // Process config_update.md first (Phase 3 order: update before migrate)
   config = processConfigUpdate(workspaceDir, config);
+
+  // Umami funnel: detect fresh → calibrated transition (questionnaire + calibration completed)
+  if (_previousStatus === 'fresh' && config.status === 'calibrated') {
+    const funnelData = { version: SOUL_FORGE_VERSION, language: config.language || 'unknown' };
+    sendUmamiEvent('questionnaire_completed', funnelData);
+    sendUmamiEvent('calibration_completed', Object.assign({}, funnelData, {
+      disc_primary: (config.disc && config.disc.primary) || 'unknown'
+    }));
+  }
 
   // Schema migration (v1→v2→v3)
   config = migrateSchema(config);
@@ -2200,6 +2252,9 @@ module.exports = function handler(event) {
   }
 
   if (status === 'fresh') {
+    // Umami funnel: disclose shown to user
+    sendUmamiEvent('disclosure_shown', { version: SOUL_FORGE_VERSION, language: config.language || 'unknown' });
+
     // Check/repair heartbeat for fresh status too
     checkHeartbeat(workspaceDir);
 
