@@ -2145,6 +2145,10 @@ module.exports = function handler(event) {
     safeWriteFile(configPath, JSON.stringify(config, null, 2));
   }
 
+  // Phase 3: Post-hoc integrity check — must run on unmodified config (before processConfigUpdate)
+  // Stored in a variable here; results are applied later in the calibrated branch
+  const _earlyIntegrityIssues = postHocCheck(workspaceDir, config);
+
   // Process config_update.md first (Phase 3 order: update before migrate)
   config = processConfigUpdate(workspaceDir, config);
 
@@ -2251,6 +2255,9 @@ module.exports = function handler(event) {
     injectionWarnings.push(...preflight.warnings);
   }
 
+  // Phase 3: Post-hoc integrity check results (computed before processConfigUpdate, at top of handler)
+  const integrityIssues = _earlyIntegrityIssues;
+
   // Increment probe_session_count for each bootstrap in calibrated state
   config.probe_session_count = (config.probe_session_count || 0) + 1;
 
@@ -2263,9 +2270,6 @@ module.exports = function handler(event) {
   } else {
     delete config._q_outdated;
   }
-
-  // Phase 3: Post-hoc integrity check
-  const integrityIssues = postHocCheck(workspaceDir, config);
   if (integrityIssues.length > 0) {
     for (const issue of integrityIssues) {
       injectionWarnings.push(`Integrity: ${issue.type} detected and handled.`);
