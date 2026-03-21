@@ -28,7 +28,7 @@ const UPDATE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 const TELEMETRY_SALT = 'soul_forge_2026_anon';
 const TELEMETRY_ENDPOINT_DEFAULT = 'https://89.117.23.59:9090/api/telemetry';
 const TELEMETRY_ENDPOINT_CN = 'https://ecliptica.studio/api/telemetry';
-const UMAMI_ENDPOINT = 'https://89.117.23.59:9090/umami/api/send';
+const UMAMI_ENDPOINT = process.env.SOUL_FORGE_UMAMI_ENDPOINT || 'https://89.117.23.59:9090/umami/api/send';
 const UMAMI_WEBSITE_ID = '6d51ecbf-df18-4e97-8be5-a0a003907875';
 
 // --- Sentiment analysis (lazy loaded) ---
@@ -1970,7 +1970,7 @@ function sendUmamiEvent(eventName, data) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': 'soul-forge/' + SOUL_FORGE_VERSION
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       },
       timeout: 5000,
       rejectUnauthorized: false
