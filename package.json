@@ -1,0 +1,33 @@
+{
+  "name": "soul-forge-install",
+  "version": "3.1.1",
+  "description": "Soul Forge — AI Personality Calibration for OpenClaw (Installer)",
+  "bin": {
+    "soul-forge-install": "./installer.js"
+  },
+  "files": [
+    "installer.js",
+    "skills/",
+    "hooks/",
+    ".soul_forge/",
+    "HEARTBEAT_SEGMENT.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "openclaw",
+    "soul-forge",
+    "disc",
+    "personality",
+    "ai",
+    "calibration"
+  ],
+  "author": "Benjamin Meng <meng1995nan@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BenjaminMeng/soul-forge.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
