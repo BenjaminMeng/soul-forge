@@ -13,7 +13,7 @@ Soul Forge runs a one-time DISC questionnaire, identifies how you think and comm
 
 ---
 
-<!-- demo-status.png: English screenshot needed -->
+![Soul Forge status after calibration](docs/assets/demo-status.png)
 
 ---
 
@@ -82,7 +82,7 @@ Installation successful! Restart OpenClaw and send /soul-forge to begin.
 
 After restarting OpenClaw, send `/soul-forge` in your Telegram bot:
 
-<!-- demo-first-run.png: English screenshot needed -->
+![Soul Forge first run — privacy notice](docs/assets/demo-first-run.png)
 
 You'll see a short privacy notice, then 8 scenario questions. Answer with A / B / C / D. Soul Forge confirms your DISC type and starts adapting from that point on.
 
