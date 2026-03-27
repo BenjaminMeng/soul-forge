@@ -108,6 +108,12 @@ openclaw gateway restart
 
 如果看到隐私说明和问卷提示，就说明安装成功了！
 
+![Soul Forge 首次运行](../assets/demo-first-run.zh.png)
+
+发送 `/soul-forge status` 可以随时查看当前校准状态：
+
+![Soul Forge 状态报告](../assets/demo-status.zh.png)
+
 ---
 
 ## 常见问题

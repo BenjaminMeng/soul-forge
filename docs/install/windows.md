@@ -113,7 +113,13 @@ docker compose up -d
 /soul-forge
 ```
 
-看到隐私说明和问卷提示，安装成功。
+看到隐私说明和问卷提示，安装成功：
+
+![Soul Forge 首次运行](../assets/demo-first-run.zh.png)
+
+发送 `/soul-forge status` 可以随时查看当前校准状态：
+
+![Soul Forge 状态报告](../assets/demo-status.zh.png)
 
 ---
 
