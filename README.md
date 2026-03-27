@@ -1,29 +1,38 @@
-# Soul Forge — AI Personality Calibration for OpenClaw
+[中文文档](docs/install/windows.md) · [macOS](docs/install/macos.md) · [FAQ](docs/faq/common-questions.md)
 
-Soul Forge is a DISC-based personality calibration plugin for [OpenClaw](https://github.com/openclaw/openclaw). It learns your communication style through an 8-question questionnaire and continuously adapts the AI's tone, depth, and response patterns to match how you actually think.
+# Soul Forge
+
+[![Version](https://img.shields.io/badge/version-3.1.1-blue)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Node](https://img.shields.io/badge/node-18%2B-brightgreen)](https://nodejs.org)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-1.2%2B-orange)](https://github.com/openclaw/openclaw)
+
+**Personality calibration for OpenClaw — learn once, adapt forever.**
+
+Soul Forge runs a one-time DISC questionnaire, identifies how you think and communicate, then quietly adapts your AI's tone, depth, and style to match — in every conversation after that.
+
+---
+
+![Soul Forge status after calibration](docs/assets/demo-status.png)
+
+---
 
 ## What It Does
 
-- **One-time questionnaire** — 8 scenario-based questions identify your DISC type (D/I/S/C)
-- **Continuous observation** — monitors your conversation patterns and refines the calibration over time
-- **Cross-model** — works with DeepSeek, MiniMax, and other models running on OpenClaw
-- **Privacy-first** — all calibration data stays local; anonymous minimal telemetry (install count only, no conversation data) is always active; detailed telemetry is opt-in
+- **One-time setup** — 8 scenario questions, ~3 minutes, done
+- **Continuous learning** — observes your patterns and refines over time
+- **Stays local** — calibration data never leaves your machine
+- **Cross-model** — works with DeepSeek, MiniMax, and other models on OpenClaw
+
+## Requirements
+
+| Requirement | Version |
+|-------------|---------|
+| [OpenClaw](https://github.com/openclaw/openclaw) | 1.2+ (1.4+ recommended) |
+| Node.js | 18+ (22 LTS recommended) |
+| Telegram bot | configured via OpenClaw |
 
 ## Installation
-
-### Windows
-
-```powershell
-git clone https://github.com/BenjaminMeng/soul-forge.git
-cd soul-forge
-node installer.js
-```
-
-Then restart your OpenClaw gateway.
-
-Full guide: [docs/install/windows.md](docs/install/windows.md)
-
-### macOS / Linux
 
 ```bash
 git clone https://github.com/BenjaminMeng/soul-forge.git
@@ -31,30 +40,63 @@ cd soul-forge
 node installer.js
 ```
 
-Full guide: [docs/install/macos.md](docs/install/macos.md)
+Restart your OpenClaw gateway, then send `/soul-forge` in Telegram.
 
-## Requirements
+Full guides: [Windows](docs/install/windows.md) · [macOS / Linux](docs/install/macos.md)
 
-- OpenClaw (npm or Docker)
-- Node.js 18+ (22 LTS recommended)
-- A configured Telegram bot
+## What Success Looks Like
 
-## Quick Start
+```
+Soul Forge Installer v3.1.1
+============================
+[0/8] Pre-flight check...
+  OpenClaw config directory — OK
+  All source files found — OK
 
-After installation, send `/soul-forge` in your Telegram bot to start the questionnaire. The whole process takes about 3 minutes.
+[1/8] Backing up existing files...
+[2/8] Installing Skill...
+  OK    skills/soul-forge/SKILL.md
+[3/8] Installing Hook files...
+  OK    hooks/soul-forge-bootstrap/HOOK.md
+  OK    hooks/soul-forge-bootstrap/handler.js
+  OK    hooks/soul-forge-bootstrap/sentiment.js
+  OK    hooks/soul-forge-bootstrap/sentiments/en.json
+  OK    hooks/soul-forge-bootstrap/sentiments/zh.json
+[4/8] Installing runtime data...
+  OK    .soul_forge/config.json
+  OK    .soul_forge/memory.md
+  OK    .soul_forge/SOUL_INIT.md
+  OK    .soul_forge/IDENTITY_INIT.md
+[5/8] Installing Heartbeat segment...
+  OK    HEARTBEAT_SEGMENT.md
+[6/8] Enabling hooks...
+  OK    soul-forge-bootstrap enabled
+[7/8] Verifying installation...
+  All checks passed
+[8/8] Done.
 
-See [docs/usage/quickstart.md](docs/usage/quickstart.md) for a step-by-step walkthrough.
+Installation successful! Restart OpenClaw and send /soul-forge to begin.
+```
 
-## Version
+## First Run
 
-Current: **v3.1.1**
+After restarting OpenClaw, send `/soul-forge` in your Telegram bot:
 
-See [CHANGELOG.md](CHANGELOG.md) for release history.
+![Soul Forge first run — privacy notice](docs/assets/demo-first-run.png)
 
-## Compatibility
+You'll see a short privacy notice, then 8 scenario questions. Answer with A / B / C / D. Soul Forge confirms your DISC type and starts adapting from that point on.
 
-See [docs/compatibility/openclaw-version-support.md](docs/compatibility/openclaw-version-support.md) for OpenClaw version compatibility.
+## Documentation
 
-## FAQ
+| | |
+|--|--|
+| [Quick Start](docs/usage/quickstart.md) | Walkthrough of the questionnaire and DISC types |
+| [Windows Install](docs/install/windows.md) | Full Windows guide |
+| [macOS Install](docs/install/macos.md) | Full macOS / Linux guide |
+| [Compatibility](docs/compatibility/openclaw-version-support.md) | OpenClaw versions, tested models |
+| [FAQ](docs/faq/common-questions.md) | Common questions |
+| [Changelog](CHANGELOG.md) | Release history |
 
-Common questions: [docs/faq/common-questions.md](docs/faq/common-questions.md)
+## License
+
+MIT — see [LICENSE](LICENSE)
