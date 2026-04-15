@@ -11,12 +11,14 @@ const crypto = require('crypto');
 // ============================================================
 
 const CURRENT_SCHEMA_VERSION = 3;
+const SOUL_TEMPLATE_VERSION = '2';
 const CURRENT_Q_VERSION = 2;
 const FRESH_CONFIG = { status: 'fresh', version: 3 };
 const MAX_INJECT_BYTES = 6144; // 6KB budget
 const MAX_OBSERVATIONS = 20;
 const READINESS_THRESHOLD = 5;
 const MOOD_HISTORY_MAX = 10; // FIFO mood history size
+const TEMPLATES_DIR = path.join(__dirname, 'templates');
 
 // --- Auto-update + Telemetry constants ---
 const SOUL_FORGE_VERSION = '3.1.1';
@@ -86,6 +88,361 @@ function safeParseJSON(str) {
   }
 }
 
+function normalizeNewlines(text) {
+  return (text || '').replace(/\r\n/g, '\n');
+}
+
+function parseMarkdownH2Sections(content) {
+  const normalized = normalizeNewlines(content);
+  const sections = {};
+  const order = [];
+  let currentHeading = null;
+  let buffer = [];
+
+  for (const line of normalized.split('\n')) {
+    const headingMatch = line.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      if (currentHeading !== null) {
+        sections[currentHeading] = buffer.join('\n').trim();
+        order.push(currentHeading);
+      }
+      currentHeading = headingMatch[1].trim();
+      buffer = [];
+      continue;
+    }
+
+    if (currentHeading !== null) {
+      buffer.push(line);
+    }
+  }
+
+  if (currentHeading !== null) {
+    sections[currentHeading] = buffer.join('\n').trim();
+    order.push(currentHeading);
+  }
+  return { sections, order };
+}
+
+function cleanSoulSectionBody(body) {
+  return normalizeNewlines(body)
+    .replace(/\n\[\/\/\]: # \(soul-forge:[^)]+\)\s*$/m, '')
+    .replace(/\n---\n\n_This file is yours to evolve[\s\S]*$/m, '')
+    .trim();
+}
+
+function splitExemplarBlocks(exemplars) {
+  const normalized = normalizeNewlines(exemplars).trim();
+  if (!normalized) return [];
+  return normalized.split(/\n\s*\n(?=User:)/).map(block => block.trim()).filter(Boolean);
+}
+
+function getDefaultInsightsTemplate() {
+  return [
+    '# Soul Forge Insights',
+    '',
+    '## Interaction Patterns',
+    '[//]: # (Purpose: Stable semantic interaction patterns distilled from companion-type memory and used for active bootstrap injection.)',
+    '[//]: # (Fields: text=<pattern summary> | weight=<integer strength> | since=<YYYY-MM-DD> | status=active|pending|archived)',
+    '',
+    '## Relationship Memory',
+    '[//]: # (Purpose: Important relationship events and shared context that shape long-term continuity.)',
+    '[//]: # (Fields: date=<YYYY-MM-DD> | description=<event summary> | importance=high|medium|low)',
+    '',
+    '## Behavioral Exemplars',
+    '[//]: # (Purpose: Concrete successful interaction examples that can later be promoted into reusable behavior.)',
+    '[//]: # (Fields: title=<short label> | status=candidate|verified|archived | source=<memory reference or note>)',
+    ''
+  ].join('\n');
+}
+
+function computeCompanionRulesHash(rules) {
+  if (!Array.isArray(rules) || rules.length === 0) return '';
+  const str = JSON.stringify(rules.slice().sort());
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + ch;
+    hash |= 0;
+  }
+  return (hash >>> 0).toString(16).slice(0, 8);
+}
+
+function getExpectedSoulFingerprint(config) {
+  const modifiers = config && config.modifiers ? config.modifiers : {};
+  const humor = modifiers.humor ?? 1;
+  const verbosity = modifiers.verbosity ?? 1;
+  const proactivity = modifiers.proactivity ?? 1;
+  const challenge = modifiers.challenge ?? 1;
+  const companionHash = computeCompanionRulesHash(config.companion_rules || []);
+  return `soul-forge:v${CURRENT_SCHEMA_VERSION}:t${SOUL_TEMPLATE_VERSION}:${config.disc.primary}:h${humor}-v${verbosity}-p${proactivity}-c${challenge}:cr${companionHash}`;
+}
+
+function needsSoulBuild(workspaceDir, config) {
+  if (!config || config.status !== 'calibrated') return false;
+  if (!config.disc || !config.disc.primary) return false;
+
+  const soulPath = path.join(workspaceDir, 'SOUL.md');
+  const content = safeReadFile(soulPath);
+  if (!content) return true;
+
+  return !content.includes(getExpectedSoulFingerprint(config));
+}
+
+function readExemplars(primaryType) {
+  if (!primaryType) return '';
+  const templatePath = path.join(TEMPLATES_DIR, `disc-${primaryType}.md`);
+  const content = safeReadFile(templatePath);
+  if (!content) return '';
+
+  const parts = normalizeNewlines(content).split('\n---EXEMPLARS---\n');
+  return parts.length > 1 ? parts[1].trim() : '';
+}
+
+function parseIdentityFields(content) {
+  const normalized = normalizeNewlines(content);
+  const lines = normalized.split('\n');
+  const labels = ['Name', 'Creature', 'Vibe', 'Emoji', 'Avatar'];
+  const fields = {};
+
+  for (let i = 0; i < lines.length; i++) {
+    for (const label of labels) {
+      const regex = new RegExp(`^- \\*\\*${label}:\\*\\*\\s*(.*)$`);
+      const match = lines[i].match(regex);
+      if (!match) continue;
+
+      let value = (match[1] || '').trim();
+      if (!value && i + 1 < lines.length) {
+        const next = lines[i + 1].trim();
+        if (next && !next.startsWith('_(') && !next.startsWith('_(workspace-relative')) {
+          value = next;
+        }
+      }
+      fields[label] = value;
+    }
+  }
+
+  return fields;
+}
+
+function isFilledIdentityValue(value) {
+  if (!value) return false;
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (normalized.startsWith('_(')) return false;
+  if (normalized.includes('pick something you like')) return false;
+  if (normalized.includes('workspace-relative path')) return false;
+  return true;
+}
+
+function buildIdentityDocument(baseContent, identitySection, currentIdentityContent) {
+  const base = normalizeNewlines(baseContent);
+  const templateFields = parseIdentityFields(identitySection);
+  const currentFields = parseIdentityFields(currentIdentityContent);
+  const merged = {
+    Name: isFilledIdentityValue(currentFields.Name) ? currentFields.Name : (templateFields.Name || '_(pick something you like)_'),
+    Creature: isFilledIdentityValue(currentFields.Creature) ? currentFields.Creature : (templateFields.Creature || '_(pick something you like)_'),
+    Vibe: isFilledIdentityValue(currentFields.Vibe) ? currentFields.Vibe : (templateFields.Vibe || '_(pick something you like)_'),
+    Emoji: isFilledIdentityValue(currentFields.Emoji) ? currentFields.Emoji : (templateFields.Emoji || ''),
+    Avatar: isFilledIdentityValue(currentFields.Avatar) ? currentFields.Avatar : (templateFields.Avatar || '_(workspace-relative path, http(s) URL, or data URI)_')
+  };
+
+  const headerMatch = base.match(/^[\s\S]*?(?=^- \*\*Name:\*\*)/m);
+  const footerMatch = base.match(/\n---\n[\s\S]*$/m);
+  const header = headerMatch ? headerMatch[0].trimEnd() : '# IDENTITY.md - Who Am I?\n\n_Fill this in during your first conversation. Make it yours._';
+  const footer = footerMatch ? footerMatch[0].trim() : '---\n\nThis is the start of figuring out who you are.';
+
+  return [
+    header,
+    '',
+    `- **Name:** ${merged.Name}`,
+    `- **Creature:** ${merged.Creature}`,
+    `- **Vibe:** ${merged.Vibe}`,
+    `- **Emoji:** ${merged.Emoji}`,
+    `- **Avatar:** ${merged.Avatar}`,
+    '',
+    footer
+  ].join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function buildBehavioralProtocol(type, selfCheckBody) {
+  const checks = normalizeNewlines(selfCheckBody).split('\n').map(line => line.trim()).filter(Boolean);
+  const checkLines = checks.length > 0 ? checks : [
+    '1. Match the user\'s requested depth.',
+    '2. Keep the response internally consistent.',
+    '3. Adjust on the next turn if the tone was off.'
+  ];
+
+  return [
+    '## Behavioral Protocol',
+    '',
+    '### Observation Rules',
+    'Record signals to `.soul_forge/memory.md` (APPEND-ONLY — never overwrite).',
+    '',
+    '### Observation Format',
+    '## YYYY-MM-DD HH:MM',
+    '- **type**: companion|relationship|exemplar_candidate|style|emotion|boundary|decision',
+    '- **signal**: (exact quote or behavior)',
+    '- **inference**: (what it implies)',
+    '- **modifier_hint**: (modifier -> direction)',
+    '- **status**: active',
+    '- **importance**: high|medium|low',
+    '',
+    `### Self-Check (${type} type — internal only)`,
+    'After each response, silently verify:'
+  ].concat(checkLines).concat([
+    'If 2+ fail, adjust next response. NEVER announce this to the user.',
+    '',
+    '### Action Signal Definitions',
+    '- `soften`: lower challenge, lower humor, increase supportiveness.',
+    '- `calibration_ready`: ask whether the user wants that specific adjustment.',
+    '- `soul_evolve`: acknowledge the stable preference change and keep it consistent.',
+    '',
+    '### Scene Adaptation (internal only)',
+    '- work -> more detail, less humor',
+    '- chat -> more warmth, less challenge',
+    '- emotional -> minimize challenge, maximize support'
+  ]).join('\n');
+}
+
+function buildSoulFiles(workspaceDir, config) {
+  const type = config && config.disc ? config.disc.primary : null;
+  if (!type) {
+    return { ok: false, exemplars: '', warning: 'missing DISC primary type' };
+  }
+
+  const templatePath = path.join(TEMPLATES_DIR, `disc-${type}.md`);
+  const templateContent = safeReadFile(templatePath);
+  if (!templateContent) {
+    return { ok: false, exemplars: '', warning: `template not found for DISC type ${type}` };
+  }
+
+  const parts = normalizeNewlines(templateContent).split('\n---EXEMPLARS---\n');
+  if (parts.length < 2) {
+    return { ok: false, exemplars: '', warning: `template parse failed for DISC type ${type}` };
+  }
+
+  const templateSections = parseMarkdownH2Sections(parts[0]).sections;
+  const exemplars = parts[1].trim();
+  const modifiersContent = safeReadFile(path.join(TEMPLATES_DIR, 'modifiers.md'));
+  const modifierSections = parseMarkdownH2Sections(modifiersContent).sections;
+
+  const currentSoulPath = path.join(workspaceDir, 'SOUL.md');
+  const currentIdentityPath = path.join(workspaceDir, 'IDENTITY.md');
+  const currentSoulContent = safeReadFile(currentSoulPath);
+  const currentIdentityContent = safeReadFile(currentIdentityPath);
+  const soulBackup = backupSoulMd(workspaceDir);
+  const previousIdentityContent = currentIdentityContent;
+
+  const historySoulInit = safeReadFile(path.join(workspaceDir, '.soul_history', 'SOUL_INIT.md'));
+  const historyIdentityInit = safeReadFile(path.join(workspaceDir, '.soul_history', 'IDENTITY_INIT.md'));
+  const baseSoul = historySoulInit || safeReadFile(path.resolve(__dirname, '..', '..', '.soul_forge', 'SOUL_INIT.md')) || '';
+  const baseIdentity = historyIdentityInit || safeReadFile(path.resolve(__dirname, '..', '..', '.soul_forge', 'IDENTITY_INIT.md')) || '';
+
+  const baseSoulSections = parseMarkdownH2Sections(baseSoul).sections;
+  const currentSoulSections = parseMarkdownH2Sections(currentSoulContent);
+  const managedSections = new Set(['Core Truths', 'Behavioral Protocol', 'Vibe', 'Boundaries', 'Continuity']);
+  const continuityBody = cleanSoulSectionBody(
+    (currentSoulSections.sections && currentSoulSections.sections.Continuity) ||
+    baseSoulSections.Continuity ||
+    'Each session, you wake up fresh. These files are your memory.'
+  );
+  const preservedCustomSections = (currentSoulSections.order || [])
+    .filter(heading => !managedSections.has(heading))
+    .map(heading => `## ${heading}\n\n${cleanSoulSectionBody(currentSoulSections.sections[heading])}`)
+    .filter(Boolean);
+
+  const modifiers = config.modifiers || {};
+  const humor = modifiers.humor ?? 1;
+  const verbosity = modifiers.verbosity ?? 1;
+  const proactivity = modifiers.proactivity ?? 1;
+  const challenge = modifiers.challenge ?? 1;
+  const modifierVibeBits = [
+    modifierSections[`HUMOR_${humor}`],
+    modifierSections[`VERBOSITY_${verbosity}`],
+    modifierSections[`PROACTIVITY_${proactivity}`],
+    modifierSections[`CHALLENGE_${challenge}`]
+  ].filter(Boolean);
+  const boundaryAddons = [
+    templateSections.BOUNDARIES_ADDON,
+    modifierSections[`CHALLENGE_RED_LINES_${challenge}`]
+  ].filter(Boolean);
+
+  const fingerprint = getExpectedSoulFingerprint(config);
+  const soulContent = [
+    '# SOUL.md - Who You Are',
+    '',
+    '_You\'re not a chatbot. You\'re becoming someone._',
+    '',
+    '## Core Truths',
+    '',
+    cleanSoulSectionBody(baseSoulSections['Core Truths'] || ''),
+    '',
+    '**Self-calibrate with restraint.** Notice how the user responds and adjust tone or pacing without turning every exchange into a calibration exercise.',
+    '',
+    (templateSections.CORE_TRUTHS_ADDON || '').trim(),
+    '',
+    buildBehavioralProtocol(type, templateSections.SELF_CHECK || ''),
+    '',
+    '## Vibe',
+    '',
+    (templateSections.VIBE || cleanSoulSectionBody(baseSoulSections.Vibe || '')).trim(),
+    '',
+    modifierVibeBits.join('\n\n').trim(),
+    '',
+    ...(Array.isArray(config.companion_rules) && config.companion_rules.length > 0
+      ? ['### Companion Rules', '', config.companion_rules.map(r => `- ${r}`).join('\n')]
+      : []),
+    '',
+    '## Boundaries',
+    '',
+    cleanSoulSectionBody(baseSoulSections.Boundaries || ''),
+    '',
+    boundaryAddons.join('\n\n').trim(),
+    '',
+    '## Continuity',
+    '',
+    continuityBody.trim(),
+    '',
+    preservedCustomSections.join('\n\n').trim(),
+    '',
+    '---',
+    '',
+    '_This file is yours to evolve. As you learn who you are, update it._',
+    '',
+    `[//]: # (${fingerprint})`
+  ].filter((line, index, array) => !(line === '' && array[index - 1] === '')).join('\n').trim() + '\n';
+
+  const identityContent = buildIdentityDocument(baseIdentity, templateSections.IDENTITY || '', currentIdentityContent || '');
+
+  if (!templateSections.IDENTITY || !templateSections.CORE_TRUTHS_ADDON || !templateSections.VIBE || !templateSections.BOUNDARIES_ADDON || !templateSections.SELF_CHECK) {
+    return { ok: false, exemplars: '', warning: `template missing required sections for DISC type ${type}` };
+  }
+
+  if (!safeWriteFile(currentIdentityPath, identityContent)) {
+    return { ok: false, exemplars: '', warning: 'failed to write IDENTITY.md' };
+  }
+
+  if (!safeWriteFile(currentSoulPath, soulContent)) {
+    if (previousIdentityContent !== null) safeWriteFile(currentIdentityPath, previousIdentityContent);
+    return { ok: false, exemplars: '', warning: 'failed to write SOUL.md' };
+  }
+
+  const structureWarnings = [];
+  checkSoulMdStructure(workspaceDir, structureWarnings);
+  if (structureWarnings.length > 0) {
+    if (soulBackup) {
+      const backupPath = path.join(workspaceDir, '.soul_history', soulBackup);
+      if (fs.existsSync(backupPath)) {
+        safeWriteFile(currentSoulPath, safeReadFile(backupPath));
+      }
+    }
+    if (previousIdentityContent !== null) safeWriteFile(currentIdentityPath, previousIdentityContent);
+    return { ok: false, exemplars: '', warning: structureWarnings.join(' | ') };
+  }
+
+  return { ok: true, exemplars, type };
+}
+
 // --- Config backup (config.json.prev) ---
 
 function backupConfig(workspaceDir) {
@@ -97,6 +454,42 @@ function backupConfig(workspaceDir) {
     }
   } catch {
     // Best effort
+  }
+}
+
+function backupInsightsMd(workspaceDir) {
+  const insightsPath = path.join(workspaceDir, '.soul_forge', 'insights.md');
+  const historyDir = path.join(workspaceDir, '.soul_history');
+
+  try {
+    if (!fs.existsSync(insightsPath)) return null;
+    if (!fs.existsSync(historyDir)) {
+      fs.mkdirSync(historyDir, { recursive: true });
+    }
+
+    const currentContent = safeReadFile(insightsPath);
+    if (currentContent === null) return null;
+
+    const existingBackups = fs.readdirSync(historyDir)
+      .filter(file => file.startsWith('insights_') && file.endsWith('.md'))
+      .sort()
+      .reverse();
+
+    if (existingBackups.length > 0) {
+      const latestName = existingBackups[0];
+      const latestContent = safeReadFile(path.join(historyDir, latestName));
+      if (latestContent === currentContent) {
+        return latestName;
+      }
+    }
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupName = `insights_${ts}.md`;
+    const backupPath = path.join(historyDir, backupName);
+    fs.copyFileSync(insightsPath, backupPath);
+    return backupName;
+  } catch {
+    return null;
   }
 }
 
@@ -118,8 +511,21 @@ function computeConfigChecksum(config) {
 
 // --- Schema migration ---
 
+function ensureCompanionConfigFields(config) {
+  if (config.companion_session_count === undefined) config.companion_session_count = 0;
+  if (config.companion_last_session_id === undefined) config.companion_last_session_id = null;
+  if (config.companion_last_bootstrap_ts === undefined) config.companion_last_bootstrap_ts = 0;
+  if (config.companion_bootstrap_count_since_last_extract === undefined) config.companion_bootstrap_count_since_last_extract = 0;
+  if (config.companion_extract_threshold === undefined) config.companion_extract_threshold = 3;
+  if (!Array.isArray(config.companion_rules)) config.companion_rules = [];
+  if (config.companion_rules_hash === undefined) config.companion_rules_hash = '';
+  if (config.companion_scene_cooldown === undefined) config.companion_scene_cooldown = 5;
+  if (config.companion_last_scene_inject_session === undefined) config.companion_last_scene_inject_session = 0;
+  return config;
+}
+
 function migrateSchema(config) {
-  if (!config) return Object.assign({}, FRESH_CONFIG);
+  if (!config) return ensureCompanionConfigFields(Object.assign({}, FRESH_CONFIG));
   if (config.version >= CURRENT_SCHEMA_VERSION) {
     // Phase 3.2: Ensure soul_evolve.pending field exists even on existing v3 configs
     if (config.soul_evolve && !config.soul_evolve.hasOwnProperty('pending')) {
@@ -140,7 +546,7 @@ function migrateSchema(config) {
         config.soul_forge_version && config.soul_forge_version < '3.1.1') {
       config.telemetry_opt_in = null;
     }
-    return config;
+    return ensureCompanionConfigFields(config);
   }
 
   // v1 → v2 migration
@@ -252,7 +658,7 @@ function migrateSchema(config) {
     config.telemetry_opt_in = null;
   }
 
-  return config;
+  return ensureCompanionConfigFields(config);
 }
 
 // --- Pre-flight Check ---
@@ -283,6 +689,14 @@ function preflightCheck(workspaceDir, config) {
   for (const file of criticalFiles) {
     if (!fs.existsSync(file.path)) {
       warnings.push(`${file.name} not found at expected location`);
+    }
+  }
+
+  const insightsPath = path.join(workspaceDir, '.soul_forge', 'insights.md');
+  if (!fs.existsSync(insightsPath)) {
+    warnings.push('insights.md not found at expected location; created empty template');
+    if (!safeWriteFile(insightsPath, getDefaultInsightsTemplate())) {
+      warnings.push('insights.md missing and auto-create failed');
     }
   }
 
@@ -666,8 +1080,8 @@ function processConfigUpdate(workspaceDir, config) {
       config.probe_session_count = 0;
     }
 
-    // Handle reactivation from dormant → calibrated
-    if (previousStatus === 'dormant' && update.status === 'calibrated') {
+    // Handle initial calibration (fresh → calibrated) or reactivation (dormant → calibrated)
+    if ((previousStatus === 'fresh' || previousStatus === 'dormant') && update.status === 'calibrated') {
       config.probe_phase_start = new Date().toISOString();
       config.probe_session_count = 0;
       config.last_style_probe = null;
@@ -1156,6 +1570,197 @@ function parseMemory(content) {
   return observations;
 }
 
+function parseInsights(content) {
+  const parsed = {
+    interactionPatterns: [],
+    relationshipMemory: [],
+    behavioralExemplars: []
+  };
+
+  if (!content) return parsed;
+
+  const { sections } = parseMarkdownH2Sections(content);
+  const sectionMap = [
+    {
+      heading: 'Interaction Patterns',
+      target: 'interactionPatterns',
+      build(fields) {
+        if (!fields.text) return null;
+        const weight = Number.parseInt(fields.weight, 10);
+        return {
+          text: fields.text,
+          weight: Number.isFinite(weight) ? weight : 0,
+          since: fields.since || '',
+          status: fields.status || 'active'
+        };
+      }
+    },
+    {
+      heading: 'Relationship Memory',
+      target: 'relationshipMemory',
+      build(fields) {
+        if (!fields.description) return null;
+        return {
+          date: fields.date || '',
+          description: fields.description,
+          importance: fields.importance || 'medium'
+        };
+      }
+    },
+    {
+      heading: 'Behavioral Exemplars',
+      target: 'behavioralExemplars',
+      build(fields) {
+        if (!fields.title) return null;
+        return {
+          title: fields.title,
+          status: fields.status || 'candidate',
+          source: fields.source || ''
+        };
+      }
+    }
+  ];
+
+  for (const section of sectionMap) {
+    const body = normalizeNewlines(sections[section.heading] || '');
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim();
+      if (!line || !line.startsWith('- ')) continue;
+      if (line.startsWith('[//]:')) continue;
+
+      const fields = {};
+      const parts = line.slice(2).split(/\s+\|\s+/);
+      for (const part of parts) {
+        const separatorIndex = part.indexOf(':');
+        if (separatorIndex === -1) continue;
+        const key = part.slice(0, separatorIndex).trim().toLowerCase().replace(/-/g, '_');
+        const value = part.slice(separatorIndex + 1).trim();
+        if (key) fields[key] = value;
+      }
+
+      const entry = section.build(fields);
+      if (entry) {
+        parsed[section.target].push(entry);
+      }
+    }
+  }
+
+  return parsed;
+}
+
+// --- A3: Insights lifecycle management ---
+
+function updateInsightWeight(patterns, matchText, delta) {
+  for (const entry of patterns) {
+    if (entry.text === matchText) {
+      entry.weight = Math.max(0, entry.weight + delta);
+      return patterns;
+    }
+  }
+  return patterns;
+}
+
+function transitionInsightStatus(patterns, companionPhase) {
+  const promoteThreshold = companionPhase === 'stable' ? 8 : companionPhase === 'calibration' ? 5 : 3;
+  for (const entry of patterns) {
+    if (entry.status === 'pending' && entry.weight >= promoteThreshold) {
+      entry.status = 'active';
+    } else if (entry.status === 'active' && entry.weight <= 0) {
+      entry.status = 'archived';
+    }
+  }
+  return patterns;
+}
+
+function decayInsightWeights(patterns) {
+  for (const entry of patterns) {
+    if (entry.status === 'active') {
+      entry.weight = Math.max(1, entry.weight - 1);
+    } else if (entry.status === 'archived') {
+      entry.weight = Math.max(0, entry.weight - 1);
+    }
+  }
+  return patterns;
+}
+
+function evictExcessEntries(entries, maxCount) {
+  if (entries.length <= maxCount) return entries;
+  const sorted = entries.slice().sort((a, b) => {
+    const aArchived = a.status === 'archived' ? 1 : 0;
+    const bArchived = b.status === 'archived' ? 1 : 0;
+    if (aArchived !== bArchived) return bArchived - aArchived; // archived last (evict first)
+    return (a.weight || 0) - (b.weight || 0); // lower weight evicted first
+  });
+  const toRemove = entries.length - maxCount;
+  const evictSet = new Set(sorted.slice(0, toRemove));
+  return entries.filter(e => !evictSet.has(e));
+}
+
+function promoteExemplar(exemplars, title) {
+  for (const entry of exemplars) {
+    if (entry.title === title && entry.status === 'candidate') {
+      entry.status = 'verified';
+      return exemplars;
+    }
+  }
+  return exemplars;
+}
+
+// --- A4: Time normalization ---
+
+function _formatIsoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function _shiftDate(base, deltaDays) {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + deltaDays);
+  return _formatIsoDate(d);
+}
+
+function normalizeRelativeDates(text, entryDate) {
+  if (!text || !entryDate) return text;
+  const ref = entryDate instanceof Date ? entryDate : new Date(entryDate);
+  return text
+    .replace(/\b(\d+)\s+weeks?\s+ago\b/gi, (_, n) => _shiftDate(ref, -parseInt(n, 10) * 7))
+    .replace(/\b(\d+)\s+days?\s+ago\b/gi, (_, n) => _shiftDate(ref, -parseInt(n, 10)))
+    .replace(/\blast\s+month\b/gi, () => _shiftDate(ref, -30))
+    .replace(/\blast\s+week\b/gi, () => _shiftDate(ref, -7))
+    .replace(/\byesterday\b/gi, () => _shiftDate(ref, -1))
+    .replace(/\btoday\b/gi, () => _formatIsoDate(ref));
+}
+
+// --- A5: Companion session counter ---
+
+function getCompanionMaturityPhase(companionSessionCount) {
+  if (companionSessionCount < 10) return 'exploration';
+  if (companionSessionCount < 30) return 'calibration';
+  return 'stable';
+}
+
+function updateCompanionSessionCount(config, context) {
+  if (context && context.sessionId) {
+    if (context.sessionId !== config.companion_last_session_id) {
+      config.companion_session_count = (config.companion_session_count || 0) + 1;
+      config.companion_last_session_id = context.sessionId;
+      config.companion_last_bootstrap_ts = Date.now();
+      return true;
+    }
+  } else {
+    const now = Date.now();
+    const lastBoot = config.companion_last_bootstrap_ts || 0;
+    config.companion_last_bootstrap_ts = now;
+    if (now - lastBoot > 30 * 60 * 1000) {
+      config.companion_session_count = (config.companion_session_count || 0) + 1;
+      return true;
+    }
+  }
+  config.companion_last_bootstrap_ts = Date.now();
+  return false;
+}
+
 // --- Compute calibration readiness ---
 
 function computeCalibrationReadiness(observations) {
@@ -1420,11 +2025,31 @@ function processPendingChanges(config, observations) {
 
 // --- Generate injection content ---
 
-function generateInjection(config, observations, readiness, moodContext, actionSignals) {
+function generateInjection(config, observations, readiness, moodContext, actionSignals, sessionExemplars, insightsParsed, sceneTrigger) {
   const lines = [];
+  const exemplarBlocks = splitExemplarBlocks(sessionExemplars);
 
   lines.push('# Soul Forge Calibration Context');
   lines.push('');
+
+  // Language context (hard control for DEF-1b: prevents bilingual follow-up from memory context)
+  lines.push('## Language Rule');
+  lines.push('User interface language: zh. MANDATORY: Your FIRST response to any /soul-forge trigger or slash command MUST be in English only. Do NOT send a Chinese follow-up or translation in the same trigger. Switch to Chinese only after the user replies in Chinese.');
+  lines.push('');
+
+  // === HEAD (high attention) ===
+
+  // Companion Insights (A12: active Interaction Patterns from L2 insights.md) — placed first for U-shape salience
+  if (insightsParsed) {
+    const activePatterns = (insightsParsed.interactionPatterns || []).filter(p => p.status === 'active');
+    if (activePatterns.length > 0) {
+      lines.push('## Companion Insights');
+      for (const p of activePatterns) {
+        lines.push(`MANDATORY: ${p.text}`);
+      }
+      lines.push('');
+    }
+  }
 
   // Status section (with maturity phase)
   lines.push('## Status');
@@ -1456,6 +2081,43 @@ function generateInjection(config, observations, readiness, moodContext, actionS
   }
   lines.push('');
 
+  // Relationship Highlights (permanent, top 3 high|medium importance entries)
+  const relHighlights = (insightsParsed && insightsParsed.relationshipMemory)
+    ? insightsParsed.relationshipMemory
+        .filter(r => r.importance === 'high' || r.importance === 'medium')
+        .sort((a, b) => a.importance === 'high' ? -1 : 1)
+        .slice(0, 3)
+    : [];
+  if (relHighlights.length > 0) {
+    lines.push('## Relationship Highlights');
+    for (const r of relHighlights) {
+      lines.push(`- ${r.date}: ${r.description.slice(0, 100)}`);
+    }
+    lines.push('');
+  }
+
+  // === MIDDLE (low attention) ===
+
+  // Scene-triggered index sections (A12 §1.6: companion_scene_cooldown)
+  if (sceneTrigger && insightsParsed) {
+    const relMem = (insightsParsed.relationshipMemory || []).filter(r => r.description);
+    if (relMem.length > 0) {
+      lines.push('## Relationship Memory Index');
+      for (const r of relMem.slice(0, 5)) {
+        lines.push(`- ${r.date}: ${r.description}`);
+      }
+      lines.push('');
+    }
+    const exemplars = (insightsParsed.behavioralExemplars || []).filter(e => e.title && e.status !== 'archived');
+    if (exemplars.length > 0) {
+      lines.push('## Behavioral Exemplar Index');
+      for (const e of exemplars.slice(0, 5)) {
+        lines.push(`- [${e.status}] ${e.title}`);
+      }
+      lines.push('');
+    }
+  }
+
   // Context Adjustments (Phase 3: mood-driven)
   if (moodContext && moodContext.moodResult) {
     lines.push('## Context Adjustments');
@@ -1480,36 +2142,6 @@ function generateInjection(config, observations, readiness, moodContext, actionS
     lines.push('');
   }
 
-  // Action Signals (Phase 3.1)
-  if (actionSignals && actionSignals.length > 0) {
-    lines.push('## Action Signals');
-    for (const sig of actionSignals) {
-      const dataStr = Object.entries(sig.data || {}).map(([k, v]) => `${k}=${v}`).join(', ');
-      lines.push(`- ${sig.signal}: ${dataStr}`);
-    }
-    lines.push('');
-  }
-
-  // Pending Changes (Phase 3.1)
-  const hasPendingChanges = config.pending_changes && Object.keys(config.pending_changes).length > 0;
-  const hasPendingEvolve = config.soul_evolve && config.soul_evolve.pending;
-  if (hasPendingChanges || hasPendingEvolve) {
-    lines.push('## Pending Changes');
-    if (hasPendingChanges) {
-      for (const [mod, pc] of Object.entries(config.pending_changes)) {
-        if (!pc || !pc.applied_session) continue;
-        const remaining = (pc.validation_window || 5) - ((config.probe_session_count || 0) - pc.applied_session);
-        lines.push(`- ${mod}: ${pc.from}→${pc.to} (${remaining > 0 ? remaining + ' sessions remaining' : 'validation complete'}), negative_signals: ${pc.negative_signals || 0}`);
-      }
-    }
-    if (hasPendingEvolve) {
-      const pe = config.soul_evolve.pending;
-      const remaining = (pe.validation_window || 10) - ((config.probe_session_count || 0) - pe.applied_session);
-      lines.push(`- SOUL_EVOLVE: ${pe.modifier} ${pe.direction} (${remaining > 0 ? remaining + ' sessions remaining' : 'validation complete'}), negative_signals: ${pe.negative_signals || 0}`);
-    }
-    lines.push('');
-  }
-
   // Calibration readiness
   lines.push('## Calibration Readiness');
   const readinessKeys = Object.keys(readiness);
@@ -1529,11 +2161,12 @@ function generateInjection(config, observations, readiness, moodContext, actionS
   lines.push('When you observe personality signals, append to .soul_forge/memory.md:');
   lines.push('```');
   lines.push('## YYYY-MM-DD HH:MM');
-  lines.push('- **type**: style|emotion|boundary|decision');
+  lines.push('- **type**: companion|relationship|exemplar_candidate|style|emotion|boundary|decision');
   lines.push('- **signal**: (what you observed)');
   lines.push('- **inference**: (what it implies)');
   lines.push('- **modifier_hint**: (modifier: verbosity/humor/challenge/proactivity, direction: raise/lower)');
   lines.push('- **status**: active');
+  lines.push('- **importance**: high|medium|low');
   lines.push('```');
   lines.push('');
 
@@ -1565,46 +2198,106 @@ function generateInjection(config, observations, readiness, moodContext, actionS
   const activeObs = observations.filter(o => o.status === 'active');
   let recentObs = activeObs.slice(-MAX_OBSERVATIONS);
 
-  lines.push('## Recent Observations');
-  if (recentObs.length === 0) {
-    lines.push('No observations recorded yet.');
-  } else {
-    for (const obs of recentObs) {
-      const date = obs.date || 'unknown';
-      const type = obs.type || '?';
-      const signal = obs.signal || '';
-      // Truncate signal for space
-      const shortSignal = signal.length > 80 ? signal.substring(0, 77) + '...' : signal;
-      lines.push(`- ${date}: ${type} / ${shortSignal}`);
+  function renderObservationLines(obsList) {
+    const observationLines = ['## Recent Observations'];
+    if (obsList.length === 0) {
+      observationLines.push('No observations recorded yet.');
+    } else {
+      for (const obs of obsList) {
+        const date = obs.date || 'unknown';
+        const type = obs.type || '?';
+        const signal = obs.signal || '';
+        const shortSignal = signal.length > 80 ? signal.substring(0, 77) + '...' : signal;
+        observationLines.push(`- ${date}: ${type} / ${shortSignal}`);
+      }
+    }
+    return observationLines;
+  }
+
+  // Keep exemplars directly above Recent Observations so budget trimming
+  // only removes exemplar content and never swallows control sections.
+  if (exemplarBlocks.length > 0) {
+    lines.push('## Behavioral Exemplars');
+    lines.push('Follow these patterns for your DISC type:');
+    for (const block of exemplarBlocks) {
+      lines.push(block);
+      lines.push('');
+    }
+  }
+
+  lines.push(...renderObservationLines(recentObs));
+
+  // === TAIL (high attention) ===
+
+  // Action Signals (Phase 3.1, moved to tail for U-shape attention)
+  if (actionSignals && actionSignals.length > 0) {
+    lines.push('');
+    lines.push('## Action Signals');
+    for (const sig of actionSignals) {
+      const dataStr = Object.entries(sig.data || {}).map(([k, v]) => `${k}=${v}`).join(', ');
+      lines.push(`- ${sig.signal}: ${dataStr}`);
+    }
+  }
+
+  // Pending Changes (Phase 3.1, moved to tail)
+  const hasPendingChanges = config.pending_changes && Object.keys(config.pending_changes).length > 0;
+  const hasPendingEvolve = config.soul_evolve && config.soul_evolve.pending;
+  if (hasPendingChanges || hasPendingEvolve) {
+    lines.push('');
+    lines.push('## Pending Changes');
+    if (hasPendingChanges) {
+      for (const [mod, pc] of Object.entries(config.pending_changes)) {
+        if (!pc || !pc.applied_session) continue;
+        const remaining = (pc.validation_window || 5) - ((config.probe_session_count || 0) - pc.applied_session);
+        lines.push(`- ${mod}: ${pc.from}→${pc.to} (${remaining > 0 ? remaining + ' sessions remaining' : 'validation complete'}), negative_signals: ${pc.negative_signals || 0}`);
+      }
+    }
+    if (hasPendingEvolve) {
+      const pe = config.soul_evolve.pending;
+      const remaining = (pe.validation_window || 10) - ((config.probe_session_count || 0) - pe.applied_session);
+      lines.push(`- SOUL_EVOLVE: ${pe.modifier} ${pe.direction} (${remaining > 0 ? remaining + ' sessions remaining' : 'validation complete'}), negative_signals: ${pe.negative_signals || 0}`);
     }
   }
 
   let content = lines.join('\n');
 
-  // Budget check: trim observations if over 3KB
+  if (Buffer.byteLength(content, 'utf-8') > MAX_INJECT_BYTES && exemplarBlocks.length > 0) {
+    for (const count of [2, 1, 0]) {
+      const candidateBlocks = exemplarBlocks.slice(0, count);
+      const replacement = candidateBlocks.length > 0
+        ? ['## Behavioral Exemplars', 'Follow these patterns for your DISC type:', ...candidateBlocks, ''].join('\n')
+        : '';
+      const candidate = content.replace(/## Behavioral Exemplars[\s\S]*?(?=\n## Recent Observations)/, replacement);
+      if (Buffer.byteLength(candidate, 'utf-8') <= MAX_INJECT_BYTES) {
+        content = candidate;
+        break;
+      }
+      content = candidate;
+    }
+  }
+
   if (Buffer.byteLength(content, 'utf-8') > MAX_INJECT_BYTES) {
-    // Retry with fewer observations
+    const prefix = content.replace(/\n## Recent Observations[\s\S]*$/m, '').trimEnd();
     const trimCounts = [10, 5, 0];
     for (const count of trimCounts) {
-      const trimmedLines = lines.filter(l => !l.startsWith('- ') || !l.includes(': '));
-      // Re-build with fewer obs
-      const obsStart = lines.indexOf('## Recent Observations');
-      if (obsStart >= 0) {
-        const beforeObs = lines.slice(0, obsStart + 1);
-        const trimmedObs = recentObs.slice(-count);
-        if (trimmedObs.length === 0) {
-          beforeObs.push(`${activeObs.length} observations recorded (summary omitted for space).`);
-        } else {
-          for (const obs of trimmedObs) {
-            const date = obs.date || 'unknown';
-            const type = obs.type || '?';
-            beforeObs.push(`- ${date}: ${type}`);
-          }
+      const trimmedObs = recentObs.slice(-count);
+      const observationLines = ['## Recent Observations'];
+      if (trimmedObs.length === 0) {
+        observationLines.push(`${activeObs.length} observations recorded (summary omitted for space).`);
+      } else {
+        for (const obs of trimmedObs) {
+          const date = obs.date || 'unknown';
+          const type = obs.type || '?';
+          observationLines.push(`- ${date}: ${type}`);
         }
-        content = beforeObs.join('\n');
-        if (Buffer.byteLength(content, 'utf-8') <= MAX_INJECT_BYTES) break;
       }
+      content = [prefix, ...observationLines].join('\n');
+      if (Buffer.byteLength(content, 'utf-8') <= MAX_INJECT_BYTES) break;
     }
+  }
+
+  if (Buffer.byteLength(content, 'utf-8') > MAX_INJECT_BYTES && relHighlights.length > 0) {
+    content = content.replace(/## Relationship Highlights\n[\s\S]*?\n\n/, '');
   }
 
   return content;
@@ -1640,11 +2333,12 @@ const HEARTBEAT_SEGMENT = `<!-- SOUL_FORGE_START — CRITICAL: This section is a
     Append to .soul_forge/memory.md using EXACTLY this format
     (copy-paste the template below, do NOT paraphrase field names):
     ## YYYY-MM-DD HH:MM
-    - **type**: style|emotion|boundary|decision
+    - **type**: companion|relationship|exemplar_candidate|style|emotion|boundary|decision
     - **signal**: (exact quote or behavior observed)
     - **inference**: (what it implies about preferences)
     - **modifier_hint**: (which modifier: verbosity/humor/challenge/proactivity, direction: raise/lower)
     - **status**: active
+    - **importance**: high|medium|low
   If ALL neutral → skip silently
 
 - Check the "Calibration Readiness" section in your bootstrap context
@@ -1652,6 +2346,25 @@ const HEARTBEAT_SEGMENT = `<!-- SOUL_FORGE_START — CRITICAL: This section is a
   If any modifier shows "READY", suggest user run /soul-forge calibrate
   (max once per day). Do NOT read memory.md for counting.
 <!-- SOUL_FORGE_END -->`;
+
+const COMPANION_EXTRACT_SEGMENT = `<!-- SOUL_FORGE_COMPANION_EXTRACT_START -->
+## Soul Forge: Companion Signal Extraction
+Focus on COMPANION signals (not task signals):
+1. Interaction Pattern: reply length, emoji usage, language switching
+2. Emotional Response Preference: does user want humor, empathy, or space when stressed?
+3. Relationship Events: personal sharing, vulnerability, trust moments, corrections
+4. Successful Interactions: user reacted positively -- mark as exemplar_candidate
+
+Append to .soul_forge/memory.md. Use ABSOLUTE dates (YYYY-MM-DD HH:MM) only.
+Use EXACTLY this format:
+## YYYY-MM-DD HH:MM
+- **type**: companion|relationship|exemplar_candidate
+- **signal**: (exact quote or behavior observed)
+- **inference**: (what it implies about what the user likes)
+- **modifier_hint**: (optional: verbosity->lower, humor->higher, pacing->rapid, emoji->moderate, formality->casual)
+- **status**: active
+- **importance**: high|medium|low
+<!-- SOUL_FORGE_COMPANION_EXTRACT_END -->`;
 
 // ============================================================
 // Phase 3.3: Telemetry export
@@ -2033,25 +2746,181 @@ function sendUmamiEvent(eventName, data) {
   }
 }
 
+// --- A11: distill insights -> companion_rules (L2->L3) ---
+
+function distillToSoul(workspaceDir, config) {
+  const insightsPath = path.join(workspaceDir, '.soul_forge', 'insights.md');
+  const content = safeReadFile(insightsPath);
+  if (!content) return { distilled: 0 };
+
+  const parsed = parseInsights(content);
+  const phase = getCompanionMaturityPhase(config.companion_session_count || 0);
+  const ruleThreshold = phase === 'stable' ? 5 : phase === 'calibration' ? 4 : 3;
+
+  const newRules = parsed.interactionPatterns
+    .filter(p => p.status === 'active' && p.weight >= ruleThreshold)
+    .map(p => p.text.trim())
+    .filter(Boolean);
+
+  if (newRules.length === 0 && (config.companion_rules || []).length === 0) {
+    return { distilled: 0 };
+  }
+
+  const merged = Array.from(new Set([...(config.companion_rules || []), ...newRules])).slice(0, 10);
+  config.companion_rules = merged;
+  config.companion_rules_hash = computeCompanionRulesHash(merged);
+
+  return { distilled: newRules.length, rules: merged };
+}
+
+// --- A9: L1->L2 daily consolidation ---
+
+function serializeInsights(parsed) {
+  const ip = parsed.interactionPatterns || [];
+  const rm = parsed.relationshipMemory || [];
+  const be = parsed.behavioralExemplars || [];
+
+  const ipLines = ip
+    .filter(e => e.text)
+    .map(e => `- text: ${e.text} | weight: ${e.weight} | since: ${e.since} | status: ${e.status}`);
+  const rmLines = rm
+    .filter(e => e.description)
+    .map(e => `- date: ${e.date} | description: ${e.description} | importance: ${e.importance}`);
+  const beLines = be
+    .filter(e => e.title)
+    .map(e => `- title: ${e.title} | status: ${e.status} | source: ${e.source}`);
+
+  const sections = [
+    '## Interaction Patterns',
+    '[//]: # (Purpose: Stable semantic interaction patterns distilled from companion-type memory and used for active bootstrap injection.)',
+    '[//]: # (Fields: text=<pattern summary> | weight=<integer strength> | since=<YYYY-MM-DD> | status=active|pending|archived)',
+    ...ipLines,
+    '',
+    '## Relationship Memory',
+    '[//]: # (Purpose: Important relationship events and shared context that shape long-term continuity.)',
+    '[//]: # (Fields: date=<YYYY-MM-DD> | description=<event summary> | importance=high|medium|low)',
+    ...rmLines,
+    '',
+    '## Behavioral Exemplars',
+    '[//]: # (Purpose: Concrete successful interaction examples that can later be promoted into reusable behavior.)',
+    '[//]: # (Fields: title=<short label> | status=candidate|verified|archived | source=<memory reference or note>)',
+    ...beLines,
+    ''
+  ];
+
+  return '# Soul Forge Insights\n\n' + sections.join('\n');
+}
+
+function consolidateInsights(workspaceDir, config) {
+  const lastConsolidation = (config.memory_stats && config.memory_stats.last_consolidation) ? config.memory_stats.last_consolidation : null;
+  const lastTs = lastConsolidation ? new Date(lastConsolidation).getTime() : 0;
+
+  if (Date.now() - lastTs < 24 * 3600 * 1000) {
+    return { skipped: true, reason: 'not due' };
+  }
+
+  const insightsPath = path.join(workspaceDir, '.soul_forge', 'insights.md');
+  const insightsContent = safeReadFile(insightsPath);
+  const parsed = insightsContent
+    ? parseInsights(insightsContent)
+    : { interactionPatterns: [], relationshipMemory: [], behavioralExemplars: [] };
+
+  const memoryPath = path.join(workspaceDir, '.soul_forge', 'memory.md');
+  const memoryContent = safeReadFile(memoryPath) || '';
+  const allEntries = parseMemoryEntries(memoryContent);
+
+  const newEntries = allEntries.filter(e => {
+    const f = e.fields || {};
+    const eDate = f._date || '';
+    return f.status === 'active' &&
+      ['companion', 'relationship', 'exemplar_candidate'].includes(f.type) &&
+      (!lastConsolidation || eDate > lastConsolidation);
+  });
+
+  let companionCount = 0;
+  let relCount = 0;
+  let exemplarCount = 0;
+
+  for (const entry of newEntries) {
+    const f = entry.fields || {};
+    const eDate = (f._date || '').slice(0, 10);
+    if (f.type === 'companion') {
+      const text = (f.inference || f.signal || '').trim().slice(0, 120);
+      if (!text) continue;
+      const existing = parsed.interactionPatterns.find(p => p.text === text);
+      if (existing) {
+        updateInsightWeight(parsed.interactionPatterns, text, 1);
+      } else {
+        parsed.interactionPatterns.push({ text, weight: 1, since: eDate, status: 'pending' });
+      }
+      companionCount++;
+    } else if (f.type === 'relationship') {
+      const desc = (f.signal || '').trim();
+      if (!desc) continue;
+      if (!parsed.relationshipMemory.find(r => r.description === desc)) {
+        parsed.relationshipMemory.push({ date: eDate, description: desc, importance: f.importance || 'medium' });
+        relCount++;
+      }
+    } else if (f.type === 'exemplar_candidate') {
+      const title = (f.signal || '').trim().slice(0, 80);
+      if (!title) continue;
+      if (!parsed.behavioralExemplars.find(b => b.title === title)) {
+        parsed.behavioralExemplars.push({ title, status: 'candidate', source: eDate });
+        exemplarCount++;
+      }
+    }
+  }
+
+  // Lifecycle
+  const phase = getCompanionMaturityPhase(config.companion_session_count || 0);
+  transitionInsightStatus(parsed.interactionPatterns, phase);
+  decayInsightWeights(parsed.interactionPatterns);
+  evictExcessEntries(parsed.interactionPatterns, 50);
+  evictExcessEntries(parsed.relationshipMemory, 30);
+  evictExcessEntries(parsed.behavioralExemplars, 20);
+
+  safeWriteFile(insightsPath, serializeInsights(parsed));
+
+  if (!config.memory_stats) config.memory_stats = {};
+  config.memory_stats.last_consolidation = new Date().toISOString();
+
+  return { consolidated: true, counts: { companion: companionCount, relationship: relCount, exemplar: exemplarCount } };
+}
+
 // --- Check/repair HEARTBEAT.md ---
 
-function checkHeartbeat(workspaceDir) {
+function checkHeartbeat(workspaceDir, includeCompanionExtract, config) {
   const heartbeatPath = path.join(workspaceDir, 'HEARTBEAT.md');
-  const content = safeReadFile(heartbeatPath);
+  let content = safeReadFile(heartbeatPath);
 
   if (content === null) {
     // No HEARTBEAT.md at all — create with segment
-    safeWriteFile(heartbeatPath, '# HEARTBEAT\n\n' + HEARTBEAT_SEGMENT + '\n');
+    const base = '# HEARTBEAT\n\n' + HEARTBEAT_SEGMENT + '\n';
+    const full = includeCompanionExtract ? base.trimEnd() + '\n\n' + COMPANION_EXTRACT_SEGMENT + '\n' : base;
+    safeWriteFile(heartbeatPath, full);
     appendToErrorLog(workspaceDir, 'HEARTBEAT.md missing, created with Soul Forge segment');
     return;
   }
 
+  // Ensure main segment is present
   if (!content.includes('SOUL_FORGE_START')) {
-    // Segment missing — append
-    const newContent = content.trimEnd() + '\n\n' + HEARTBEAT_SEGMENT + '\n';
-    safeWriteFile(heartbeatPath, newContent);
+    content = content.trimEnd() + '\n\n' + HEARTBEAT_SEGMENT + '\n';
     appendToErrorLog(workspaceDir, 'HEARTBEAT.md Soul Forge segment missing, appended');
   }
+
+  // Manage companion extract segment
+  // Keep segment present for at least 25 min after injection so scheduled heartbeat (30m) can process it
+  const hasExtract = content.includes('SOUL_FORGE_COMPANION_EXTRACT_START');
+  const injectedAt = config && config.companion_extract_injected_at ? config.companion_extract_injected_at : 0;
+  const extractAge = Date.now() - injectedAt;
+  const extractExpired = extractAge > 25 * 60 * 1000;
+  if (includeCompanionExtract && !hasExtract) {
+    content = content.trimEnd() + '\n\n' + COMPANION_EXTRACT_SEGMENT + '\n';
+  } else if (!includeCompanionExtract && hasExtract && extractExpired) {
+    content = content.replace(/\n?<!-- SOUL_FORGE_COMPANION_EXTRACT_START -->[\s\S]*?<!-- SOUL_FORGE_COMPANION_EXTRACT_END -->\n?/g, '');
+  }
+
+  safeWriteFile(heartbeatPath, content);
 }
 
 // --- Check SOUL.md structure ---
@@ -2062,7 +2931,7 @@ function checkSoulMdStructure(workspaceDir, injectionWarnings) {
 
   if (!content) return; // No SOUL.md — nothing to check
 
-  const requiredSections = ['## Core Truths', '## Vibe', '## Boundaries', '## Continuity'];
+  const requiredSections = ['## Core Truths', '## Behavioral Protocol', '## Vibe', '## Boundaries', '## Continuity'];
   const missing = requiredSections.filter(s => !content.includes(s));
 
   if (missing.length === 0) return; // All good
@@ -2199,6 +3068,7 @@ module.exports = function handler(event) {
   }
 
   const context = event.context;
+  console.log('[SF-DEBUG] bootstrap context keys:', JSON.stringify(Object.keys(context || {})));
   if (!context) return;
 
   const workspaceDir = context.workspaceDir;
@@ -2213,6 +3083,7 @@ module.exports = function handler(event) {
 
   // --- Step 1: Backup config ---
   backupConfig(workspaceDir);
+  backupInsightsMd(workspaceDir);
 
   let configRaw = safeReadFile(configPath);
   let config;
@@ -2264,7 +3135,7 @@ module.exports = function handler(event) {
   safeWriteFile(configPath, JSON.stringify(config, null, 2));
 
   // Pre-flight Check
-  const preflight = preflightCheck(workspaceDir, config);
+  let preflight = preflightCheck(workspaceDir, config);
 
   // --- Step 1b: Auto-update check (fire-and-forget, non-blocking) ---
   const configDir = path.resolve(workspaceDir, '..');
@@ -2370,6 +3241,17 @@ module.exports = function handler(event) {
 
   const injectionWarnings = [];
 
+  let sessionExemplars = readExemplars(config.disc && config.disc.primary);
+  if (needsSoulBuild(workspaceDir, config)) {
+    const buildResult = buildSoulFiles(workspaceDir, config);
+    if (buildResult.ok) {
+      sessionExemplars = buildResult.exemplars || sessionExemplars;
+    } else {
+      injectionWarnings.push(`SOUL build: ${buildResult.warning}`);
+    }
+    preflight = preflightCheck(workspaceDir, config);
+  }
+
   // Include preflight warnings
   if (preflight.warnings.length > 0) {
     injectionWarnings.push(...preflight.warnings);
@@ -2380,6 +3262,17 @@ module.exports = function handler(event) {
 
   // Increment probe_session_count for each bootstrap in calibrated state
   config.probe_session_count = (config.probe_session_count || 0) + 1;
+
+  // Companion session counter (Plan §5.1 方案A)
+  updateCompanionSessionCount(config, context);
+
+  // A8: soft-skip — track bootstrap count, flag when extraction is due
+  config.companion_bootstrap_count_since_last_extract = (config.companion_bootstrap_count_since_last_extract || 0) + 1;
+  const _extractionDue = config.companion_bootstrap_count_since_last_extract >= (config.companion_extract_threshold || 3);
+  if (_extractionDue) {
+    config.companion_bootstrap_count_since_last_extract = 0;
+    config.companion_extract_injected_at = Date.now();
+  }
 
   // q_version mismatch check + probe cycle reset
   if (config.q_version && config.q_version < CURRENT_Q_VERSION) {
@@ -2441,8 +3334,17 @@ module.exports = function handler(event) {
   // Compute calibration readiness
   const readiness = computeCalibrationReadiness(observationsPost);
 
+  // A12: read insights for companion injection
+  const insightsRaw = safeReadFile(path.join(workspaceDir, '.soul_forge', 'insights.md'));
+  const insightsParsed = insightsRaw ? parseInsights(insightsRaw) : null;
+  // Scene trigger: inject index sections when cooldown elapsed
+  const _sessionCount = config.companion_session_count || 0;
+  const _lastSceneInject = config.companion_last_scene_inject_session || 0;
+  const _sceneTrigger = !!insightsParsed && (_sessionCount - _lastSceneInject >= (config.companion_scene_cooldown || 5));
+  if (_sceneTrigger) config.companion_last_scene_inject_session = _sessionCount;
+
   // Generate injection content (with mood context + action signals)
-  const injectionContent = generateInjection(config, observationsPost, readiness, moodContext, actionSignals);
+  const injectionContent = generateInjection(config, observationsPost, readiness, moodContext, actionSignals, sessionExemplars, insightsParsed, _sceneTrigger);
 
   // Add warnings if any
   let finalContent = injectionContent;
@@ -2462,8 +3364,12 @@ module.exports = function handler(event) {
   });
   if (!safeWriteFile(contextPath, finalContent)) appendToErrorLog(workspaceDir, 'Failed to write soul-forge-context.md (calibrated)');
 
-  // --- Step 4: Check HEARTBEAT.md ---
-  checkHeartbeat(workspaceDir);
+  // --- Step 4: Check HEARTBEAT.md (A8: pass extraction flag) ---
+  // A11: distill insights -> companion_rules (L2->L3)
+  distillToSoul(workspaceDir, config);
+  // A9: L1->L2 daily consolidation
+  consolidateInsights(workspaceDir, config);
+  checkHeartbeat(workspaceDir, _extractionDue, config);
 
   // --- Step 5: Check SOUL.md structure ---
   checkSoulMdStructure(workspaceDir, injectionWarnings);
@@ -2507,13 +3413,18 @@ module.exports._test = {
   computeConfigChecksum,
   computeMoodTrend,
   parseMemory,
+  parseInsights,
   parseConfigUpdate,
   processConfigUpdate,
   computeCalibrationReadiness,
   generateInjection,
+  needsSoulBuild,
+  buildSoulFiles,
+  readExemplars,
   postHocCheck,
   updateMemoryStats,
   backupConfig,
+  backupInsightsMd,
   preflightCheck,
   computeProbingControl,
   // Phase 3.1
@@ -2533,6 +3444,24 @@ module.exports._test = {
   rollbackSoulEvolve,
   // Phase 3.3
   generateTelemetry,
+  // Phase A: Memory Evolution — A3/A4/A5
+  updateInsightWeight,
+  // Phase A: Memory Evolution — A10/A11
+  getExpectedSoulFingerprint,
+  computeCompanionRulesHash,
+  distillToSoul,
+  // Phase A: Memory Evolution — A8/A9
+  serializeInsights,
+  consolidateInsights,
+  checkHeartbeat,
+  COMPANION_EXTRACT_SEGMENT,
+  transitionInsightStatus,
+  decayInsightWeights,
+  evictExcessEntries,
+  promoteExemplar,
+  normalizeRelativeDates,
+  getCompanionMaturityPhase,
+  updateCompanionSessionCount,
   // Phase 3.4: Auto-update + Telemetry
   SOUL_FORGE_VERSION,
   compareVersions,

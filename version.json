@@ -1,13 +1,18 @@
 {
-  "version": "3.1.1",
+  "version": "3.2.0",
   "min_handler_version": "3.0.0",
-  "released_at": "2026-03-22T00:00:00Z",
+  "released_at": "2026-04-15T00:00:00Z",
   "files": {
     "hooks/soul-forge-bootstrap/handler.js": "hooks/soul-forge-bootstrap/handler.js",
     "hooks/soul-forge-bootstrap/sentiment.js": "hooks/soul-forge-bootstrap/sentiment.js",
     "hooks/soul-forge-bootstrap/sentiments/zh.json": "hooks/soul-forge-bootstrap/sentiments/zh.json",
     "hooks/soul-forge-bootstrap/sentiments/en.json": "hooks/soul-forge-bootstrap/sentiments/en.json",
+    "hooks/soul-forge-bootstrap/templates/disc-D.md": "hooks/soul-forge-bootstrap/templates/disc-D.md",
+    "hooks/soul-forge-bootstrap/templates/disc-I.md": "hooks/soul-forge-bootstrap/templates/disc-I.md",
+    "hooks/soul-forge-bootstrap/templates/disc-S.md": "hooks/soul-forge-bootstrap/templates/disc-S.md",
+    "hooks/soul-forge-bootstrap/templates/disc-C.md": "hooks/soul-forge-bootstrap/templates/disc-C.md",
+    "hooks/soul-forge-bootstrap/templates/modifiers.md": "hooks/soul-forge-bootstrap/templates/modifiers.md",
     "skills/soul-forge/SKILL.md": "skills/soul-forge/SKILL.md"
   },
-  "changelog": "Mandatory minimal telemetry + telemetry_opt_in null default + Umami upgrade disclosure"
+  "changelog": "Memory Evolution L2 (insights.md) + template externalization + OBS-1/2/3 companion memory fixes + SKILL.md size reduction"
 }

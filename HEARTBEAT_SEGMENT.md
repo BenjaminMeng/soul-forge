@@ -33,11 +33,12 @@
     Append to .soul_forge/memory.md using EXACTLY this format
     (copy-paste the template below, do NOT paraphrase field names):
     ## YYYY-MM-DD HH:MM
-    - **type**: style|emotion|boundary|decision
+    - **type**: companion|relationship|exemplar_candidate|style|emotion|boundary|decision
     - **signal**: (exact quote or behavior observed)
     - **inference**: (what it implies about preferences)
     - **modifier_hint**: (which modifier: verbosity/humor/challenge/proactivity, direction: raise/lower)
     - **status**: active
+    - **importance**: high|medium|low
   If ALL neutral → skip silently
 
 - Check the "Calibration Readiness" section in your bootstrap context

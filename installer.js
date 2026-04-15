@@ -101,6 +101,7 @@ function main() {
     'hooks/soul-forge-bootstrap/handler.js',
     '.soul_forge/config.json',
     '.soul_forge/memory.md',
+    '.soul_forge/insights.md',
     '.soul_forge/SOUL_INIT.md',
     '.soul_forge/IDENTITY_INIT.md',
     'HEARTBEAT_SEGMENT.md',
@@ -153,7 +154,7 @@ function main() {
 
   // --- [2/8] Directories ---
   log('[2/8] Creating directory structure...', C.yellow);
-  [SKILL_DIR, HOOK_DIR, RUNTIME_DIR, HISTORY_DIR].forEach(d => {
+  [SKILL_DIR, HOOK_DIR, path.join(HOOK_DIR, 'templates'), RUNTIME_DIR, HISTORY_DIR].forEach(d => {
     safeMkdir(d);
     log(`  ${d}`, C.gray);
   });
@@ -197,6 +198,15 @@ function main() {
     });
   }
 
+  // Personality templates (v3.2.0+)
+  const templatesDir = path.join(SCRIPT_DIR, 'hooks', 'soul-forge-bootstrap', 'templates');
+  if (dirExists(templatesDir)) {
+    fs.readdirSync(templatesDir).filter(f => f.endsWith('.md')).forEach(f => {
+      safeCopy(path.join(templatesDir, f), path.join(HOOK_DIR, 'templates', f));
+      log(`  templates/${f} installed`, C.gray);
+    });
+  }
+
   log('  Done.', C.green);
   completedSteps.push('4-Hook');
 
@@ -228,6 +238,15 @@ function main() {
     log('  memory.md installed (new)', C.gray);
   } else {
     log('  memory.md already exists, skipped', C.yellow);
+  }
+
+  // insights.md — never overwrite (preserves accumulated L2 memory)
+  const insightsDst = path.join(RUNTIME_DIR, 'insights.md');
+  if (!fileExists(insightsDst)) {
+    safeCopy(path.join(SCRIPT_DIR, '.soul_forge', 'insights.md'), insightsDst);
+    log('  insights.md installed (new)', C.gray);
+  } else {
+    log('  insights.md already exists, skipped', C.yellow);
   }
 
   log('  Done.', C.green);
@@ -342,6 +361,7 @@ function main() {
   verify(path.join(HOOK_DIR, 'handler.js'), 'Hook handler.js');
   verify(path.join(RUNTIME_DIR, 'config.json'), 'Runtime config.json');
   verify(path.join(RUNTIME_DIR, 'memory.md'), 'Runtime memory.md');
+  verify(path.join(RUNTIME_DIR, 'insights.md'), 'Runtime insights.md');
   verify(path.join(HISTORY_DIR, 'SOUL_INIT.md'), 'INIT SOUL_INIT.md');
   verify(path.join(HISTORY_DIR, 'IDENTITY_INIT.md'), 'INIT IDENTITY_INIT.md');
 
