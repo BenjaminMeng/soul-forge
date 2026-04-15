@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.2.1 — 2026-04-15
+
+- Fix: `SOUL_FORGE_VERSION` constant bumped to `3.2.1` to match `version.json`
+  修复：`SOUL_FORGE_VERSION` 常量升至 `3.2.1` 以匹配 `version.json`
+
+- Fix: auto-update now persists `soul_forge_version` and `last_update_check` to
+  disk after download completes (was lost due to async/sync race condition)
+  修复：自动更新完成后正确将 `soul_forge_version` 和 `last_update_check` 写入磁盘
+  （此前因异步/同步竞态问题导致这两个字段无法持久化）
+
 ## v3.2.0 — 2026-04-15
 
 - Memory Evolution L2: `insights.md` as stable memory layer (distilled from

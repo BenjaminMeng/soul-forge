@@ -21,7 +21,7 @@ const MOOD_HISTORY_MAX = 10; // FIFO mood history size
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 
 // --- Auto-update + Telemetry constants ---
-const SOUL_FORGE_VERSION = '3.1.1';
+const SOUL_FORGE_VERSION = '3.2.1';
 const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
 const UPDATE_CHECK_URL_CN = 'https://ecliptica.studio/soul-forge/version.json';
 const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';
@@ -2490,6 +2490,7 @@ function compareVersions(a, b) {
 function checkForUpdates(config, configDir, workspaceDir) {
   if (config.auto_update === false) return Promise.resolve(null);
   if (process.env.SOUL_FORGE_NO_UPDATE === '1') return Promise.resolve(null);
+  const configPath = path.join(workspaceDir, '.soul_forge', 'config.json');
 
   const lastCheck = config.last_update_check ? new Date(config.last_update_check).getTime() : 0;
   if (Date.now() - lastCheck < UPDATE_COOLDOWN_MS) return Promise.resolve(null);
@@ -2532,6 +2533,16 @@ function checkForUpdates(config, configDir, workspaceDir) {
       return Promise.all(downloads).then(() => {
         config.soul_forge_version = remote.version;
         config.last_update_applied = new Date().toISOString();
+        // Persist version tracking — re-read config path from closure and save with checksum
+        try {
+          const saved = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          saved.soul_forge_version = remote.version;
+          saved.last_update_check = config.last_update_check;
+          saved.last_update_applied = config.last_update_applied;
+          if (!saved.integrity) saved.integrity = { violation_count: 0 };
+          saved.integrity._handler_checksum = computeConfigChecksum(saved);
+          fs.writeFileSync(configPath, JSON.stringify(saved, null, 2));
+        } catch { /* ignore — version tracking is non-critical */ }
         return remote;
       });
     });
