@@ -2902,10 +2902,17 @@ function checkHeartbeat(workspaceDir, includeCompanionExtract, config) {
     return;
   }
 
-  // Ensure main segment is present
+  // Ensure main segment is present and up-to-date
   if (!content.includes('SOUL_FORGE_START')) {
     content = content.trimEnd() + '\n\n' + HEARTBEAT_SEGMENT + '\n';
     appendToErrorLog(workspaceDir, 'HEARTBEAT.md Soul Forge segment missing, appended');
+  } else if (!content.includes('**importance**')) {
+    // Segment exists but is outdated (pre-v3.2.0, missing importance field) — replace in place
+    content = content.replace(
+      /<!-- SOUL_FORGE_START[\s\S]*?SOUL_FORGE_END -->/,
+      HEARTBEAT_SEGMENT.match(/<!-- SOUL_FORGE_START[\s\S]*?SOUL_FORGE_END -->/)[0]
+    );
+    appendToErrorLog(workspaceDir, 'HEARTBEAT.md Soul Forge segment outdated, replaced');
   }
 
   // Manage companion extract segment
