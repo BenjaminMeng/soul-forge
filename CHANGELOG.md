@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.2.2 — 2026-04-15
+
+- Add: restart notification injected into bootstrap context after auto-update
+  download completes — AI proactively informs user to restart OpenClaw
+  新增：自动更新下载完成后，在 bootstrap context 注入重启提示，AI 会主动告知用户重启
+
 ## v3.2.1 — 2026-04-15
 
 - Fix: `SOUL_FORGE_VERSION` constant bumped to `3.2.1` to match `version.json`

@@ -21,7 +21,7 @@ const MOOD_HISTORY_MAX = 10; // FIFO mood history size
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 
 // --- Auto-update + Telemetry constants ---
-const SOUL_FORGE_VERSION = '3.2.1';
+const SOUL_FORGE_VERSION = '3.2.2';
 const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
 const UPDATE_CHECK_URL_CN = 'https://ecliptica.studio/soul-forge/version.json';
 const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';
@@ -2533,12 +2533,13 @@ function checkForUpdates(config, configDir, workspaceDir) {
       return Promise.all(downloads).then(() => {
         config.soul_forge_version = remote.version;
         config.last_update_applied = new Date().toISOString();
-        // Persist version tracking — re-read config path from closure and save with checksum
+        // Persist version tracking + restart notice — re-read config and save with checksum
         try {
           const saved = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
           saved.soul_forge_version = remote.version;
           saved.last_update_check = config.last_update_check;
           saved.last_update_applied = config.last_update_applied;
+          saved.pending_restart = remote.version;
           if (!saved.integrity) saved.integrity = { violation_count: 0 };
           saved.integrity._handler_checksum = computeConfigChecksum(saved);
           fs.writeFileSync(configPath, JSON.stringify(saved, null, 2));
@@ -3258,6 +3259,19 @@ module.exports = function handler(event) {
   }
 
   const injectionWarnings = [];
+
+  // Restart notice: new version downloaded but not yet active
+  if (config.pending_restart) {
+    if (config.pending_restart === SOUL_FORGE_VERSION) {
+      // New version is now running — clear the flag
+      delete config.pending_restart;
+    } else {
+      injectionWarnings.push(
+        `Soul Forge v${config.pending_restart} 已下载，重启 OpenClaw 后生效。` +
+        ` Docker 用户：docker compose down && docker compose up -d`
+      );
+    }
+  }
 
   let sessionExemplars = readExemplars(config.disc && config.disc.primary);
   if (needsSoulBuild(workspaceDir, config)) {

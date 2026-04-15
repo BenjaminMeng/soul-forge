@@ -1,5 +1,5 @@
 {
-  "version": "3.2.1",
+  "version": "3.2.2",
   "min_handler_version": "3.0.0",
   "released_at": "2026-04-15T00:00:00Z",
   "files": {
@@ -14,5 +14,5 @@
     "hooks/soul-forge-bootstrap/templates/modifiers.md": "hooks/soul-forge-bootstrap/templates/modifiers.md",
     "skills/soul-forge/SKILL.md": "skills/soul-forge/SKILL.md"
   },
-  "changelog": "Fix auto-update version tracking: SOUL_FORGE_VERSION bump + async config save with checksum"
+  "changelog": "Add restart notification after auto-update download completes"
 }
