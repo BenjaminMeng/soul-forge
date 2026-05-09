@@ -21,7 +21,7 @@ const MOOD_HISTORY_MAX = 10; // FIFO mood history size
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 
 // --- Auto-update + Telemetry constants ---
-const SOUL_FORGE_VERSION = '3.2.2';
+const SOUL_FORGE_VERSION = '3.2.3';
 const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/version.json';
 const UPDATE_CHECK_URL_CN = 'https://ecliptica.studio/soul-forge/version.json';
 const UPDATE_BASE_URL = 'https://raw.githubusercontent.com/BenjaminMeng/soul-forge/main/';

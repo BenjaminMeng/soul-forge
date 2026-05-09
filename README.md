@@ -2,10 +2,12 @@
 
 # Soul Forge
 
-[![Version](https://img.shields.io/badge/version-3.1.1-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.2.3-blue)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Node](https://img.shields.io/badge/node-18%2B-brightgreen)](https://nodejs.org)
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-1.2%2B-orange)](https://github.com/openclaw/openclaw)
+
+> **Public stable test build:** v3.2.3 is a small stability patch for friend testing on the existing public v3.2.x line. If your OpenClaw agent already has Soul Forge preinstalled, start from the configured chat channel by sending `/soul-forge`.
 
 **Personality calibration for OpenClaw — learn once, adapt forever.**
 
@@ -47,7 +49,7 @@ Full guides: [Windows](docs/install/windows.md) · [macOS / Linux](docs/install/
 ## What Success Looks Like
 
 ```
-Soul Forge Installer v3.1.1
+Soul Forge Installer v3.2.3
 ============================
 [0/8] Pre-flight check...
   OpenClaw config directory — OK

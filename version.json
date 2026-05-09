@@ -1,7 +1,7 @@
 {
-  "version": "3.2.2",
-  "min_handler_version": "3.0.0",
-  "released_at": "2026-04-15T00:00:00Z",
+  "version": "3.2.3",
+  "min_handler_version": "3.2.3",
+  "released_at": "2026-05-09T00:00:00Z",
   "files": {
     "hooks/soul-forge-bootstrap/handler.js": "hooks/soul-forge-bootstrap/handler.js",
     "hooks/soul-forge-bootstrap/sentiment.js": "hooks/soul-forge-bootstrap/sentiment.js",
@@ -14,5 +14,5 @@
     "hooks/soul-forge-bootstrap/templates/modifiers.md": "hooks/soul-forge-bootstrap/templates/modifiers.md",
     "skills/soul-forge/SKILL.md": "skills/soul-forge/SKILL.md"
   },
-  "changelog": "Add restart notification after auto-update download completes"
+  "changelog": "v3.2.3: public stable test build metadata alignment and friend-test readiness clarification"
 }

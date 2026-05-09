@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.2.3 -- 2026-05-09
+
+- Public stable test build for small friend testing on the existing v3.2.x line.
+- Align public version metadata across `version.json`, `package.json`, README, and handler runtime constant.
+- Clarify that preinstalled OpenClaw agents can start Soul Forge from the configured chat channel with `/soul-forge`.
+- No internal P1-B.3 runtime tuning, P1-C Dream, or distillation features are included in this release.
+
 ## v3.2.2 — 2026-04-15
 
 - Add: restart notification injected into bootstrap context after auto-update

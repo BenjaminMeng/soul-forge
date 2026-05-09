@@ -1,6 +1,6 @@
 {
   "name": "soul-forge-install",
-  "version": "3.1.1",
+  "version": "3.2.3",
   "description": "Soul Forge — AI Personality Calibration for OpenClaw (Installer)",
   "bin": {
     "soul-forge-install": "./installer.js"

@@ -71,6 +71,11 @@ function countBytes(p) {
   try { return fs.statSync(p).size; } catch { return 0; }
 }
 
+function readJsonFile(p) {
+  const content = fs.readFileSync(p, 'utf-8').replace(/^\uFEFF/u, '');
+  return JSON.parse(content);
+}
+
 // ============================================================
 // Main
 // ============================================================
@@ -312,7 +317,7 @@ function main() {
   try {
     let config = {};
     if (fileExists(openclawJson)) {
-      config = JSON.parse(fs.readFileSync(openclawJson, 'utf-8'));
+      config = readJsonFile(openclawJson);
     }
 
     const hooksEnabled = config.hooks?.internal?.enabled === true;
